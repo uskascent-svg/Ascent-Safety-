@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +25,11 @@ class Settings(BaseSettings):
     # abuse.ch Auth-Key (URLhaus now requires one; free at auth.abuse.ch)
     urlhaus_auth_key: str | None = None
     intel_timeout_seconds: float = 5.0
-    gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.8-flash"
+    google_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    )
+    gemini_model: str = "gemini-3.5-flash-lite"
     # Public Nominatim is used only when an administrator explicitly resolves a report place name.
     geocoding_base_url: str = "https://nominatim.openstreetmap.org"
     geocoding_user_agent: str = "AscentSafety/0.3 (https://github.com/uskascent-svg/Ascent-Safety-)"
@@ -67,7 +70,7 @@ class Settings(BaseSettings):
         "abuseipdb_api_key",
         "otx_api_key",
         "urlhaus_auth_key",
-        "gemini_api_key",
+        "google_api_key",
         "ingest_api_key",
         "ml_model_path",
         mode="before",

@@ -106,6 +106,27 @@ accounts with the same deployment-shell command when appropriate.
    Configure proxy timeouts for long-lived SSE connections and rate limits for public ingestion
    routes.
 
+### Render API and database
+
+The repository includes a Render Blueprint at [`render.yaml`](render.yaml). Deploy it from the
+Render dashboard using **New → Blueprint**, select this repository, review the displayed service
+and database plan prices, and enter the Google AI key into the `GOOGLE_API_KEY` secret prompt. The
+key is a Render-only secret: do not add it to GitHub, Vercel, a browser environment variable, or a
+local committed file. The Blueprint creates a private PostgreSQL database, generates a JWT secret,
+runs Alembic migrations before deploy, and configures readiness checks. Keep a single API instance
+because the live event stream currently uses process-local state.
+
+After Render reports the API healthy, set the Vercel **Production** environment variable
+`API_INTERNAL_URL` to the Render service's HTTPS origin (for example,
+`https://ascent-safety-api.onrender.com`) and redeploy the Vercel frontend. The frontend's same-origin
+`/api` rewrite then forwards authenticated requests to the backend. Verify `/api/health/ready`, sign
+in, and check `/api/guidance/status`; never paste the Google key into the frontend or browser.
+
+The guidance agent uses Google ADK with one bounded Gemini Flash-Lite call per user request, no
+tools, no browsing, no record access, a short conversation window, and a rules-based fallback when
+the provider is not configured or unavailable. Store `GOOGLE_API_KEY` only in the backend host's
+secret store. Rotate the key if it was ever committed or exposed in logs.
+
 Useful configuration is documented in `.env.example` and validated by the backend settings model.
 `INGEST_API_KEY` can remain unset to disable generic event ingestion. Telemetry endpoint/sensor API
 keys are created inside the authenticated admin pages, shown once, and persisted only as hashes.

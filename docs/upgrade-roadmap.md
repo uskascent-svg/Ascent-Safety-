@@ -50,7 +50,7 @@ Legal summaries are an awareness aid, not legal advice. Application of a law dep
 
 ## Configuration and remaining prerequisites
 
-- Set `GEMINI_API_KEY` in the local ignored `.env` file or deployment secret manager to activate Gemini. Never commit it or paste it into the frontend. With no key, the assistant reports `rules` as its active provider.
+- Set `GOOGLE_API_KEY` in the backend deployment secret manager to activate Google ADK. Never commit it or put it in the frontend/browser. The old `GEMINI_API_KEY` setting is accepted temporarily for local migration. With no key, the assistant reports `rules` as its active provider.
 - Configure private object storage, upload size/type rules, malware scanning, retention, and authorized retrieval before enabling evidence attachments.
 - The current user schema has no department/team or organization entity. A private department leaderboard needs that data model and tenant boundaries first; no synthetic ranking is shown.
 - Map updates use the existing single-process SSE broker. Scale-out deployment requires shared pub/sub (for example Redis) before running multiple API replicas.

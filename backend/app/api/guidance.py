@@ -14,18 +14,18 @@ router = APIRouter(prefix="/api/guidance", tags=["guidance"])
 def guidance_status(_: User = Depends(get_current_user)):
     settings = get_settings()
     return GuidanceStatus(
-        provider="gemini" if settings.gemini_api_key else "rules",
-        model=settings.gemini_model if settings.gemini_api_key else None,
+        provider="gemini" if settings.google_api_key else "rules",
+        model=settings.gemini_model if settings.google_api_key else None,
     )
 
 
 @router.post("/chat", response_model=GuidanceChatResponse)
-@limiter.limit("12/minute")
-def guidance_chat(
+@limiter.limit("4/minute")
+async def guidance_chat(
     request: Request,
     payload: GuidanceChatRequest,
     user: User = Depends(get_current_user),
 ):
     role_names = {role.name for role in user.roles}
-    message, provider, model = answer(payload.messages, role_names)
+    message, provider, model = await answer(payload.messages, role_names)
     return GuidanceChatResponse(answer=message, provider=provider, model=model)

@@ -17,7 +17,7 @@ class ChatTurn(BaseModel):
 
 
 class GuidanceChatRequest(BaseModel):
-    messages: list[ChatTurn] = Field(min_length=1, max_length=12)
+    messages: list[ChatTurn] = Field(min_length=1, max_length=8)
 
 
 class GuidanceChatResponse(BaseModel):

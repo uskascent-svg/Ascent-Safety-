@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: ascent-safety-api
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health/ready
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ascent-safety-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: CORS_ORIGINS
+        value: '["https://ascent-safety.vercel.app"]'
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+
+databases:
+  - name: ascent-safety-db
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    ipAllowList: []
