@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import AccessGate from "@/components/AccessGate";
 import AlertsPanel from "@/components/AlertsPanel";
+import CyberAlertsPanel, { ActiveCyberAlertBanner } from "@/components/CyberAlertsPanel";
 import { GlobalThreatPanel, RegionsPanel, SystemStatusPanel, ThreatCategoriesPanel, ThreatTimelinePanel } from "@/components/AnalyticsPanels";
 import EventDetail from "@/components/EventDetail";
 import EventFeed from "@/components/EventFeed";
@@ -73,6 +74,7 @@ function Panel() {
       </div>
 
       <FilterBar key={filters.q} value={filters} onChange={onFilters} />
+      <ActiveCyberAlertBanner />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.75fr)]">
         <KpiCards filters={filters} />
         <GlobalThreatPanel />
@@ -86,6 +88,7 @@ function Panel() {
         <ThreatCategoriesPanel filters={filters} />
       </div>
       <AlertsPanel onSelect={setSelectedId} />
+      <CyberAlertsPanel />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <ThreatMapPanel

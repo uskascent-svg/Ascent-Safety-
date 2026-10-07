@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import ThreatMap from "@/components/ThreatMap";
 
 vi.mock("maplibre-gl", () => ({
+  setWorkerUrl: vi.fn(),
   Map: class {
     constructor() {
       throw new Error("WebGL is not supported");

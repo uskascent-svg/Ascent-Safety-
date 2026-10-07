@@ -14,18 +14,55 @@ const STYLE_URL =
 
 const SOURCE = "events";
 
-function toGeoJson(events: EventLocation[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  const pointEvents = events.filter(
-    (event): event is EventLocation & { latitude: number; longitude: number } =>
-      event.latitude !== null && event.longitude !== null,
-  );
+function fitToEvents(map: maplibregl.Map, events: EventLocation[]) {
+  const bounds = new maplibregl.LngLatBounds();
+  let hasCoordinates = false;
+  for (const event of events) {
+    for (const [latitude, longitude] of [
+      [event.latitude, event.longitude],
+      [event.origin_latitude, event.origin_longitude],
+      [event.destination_latitude, event.destination_longitude],
+    ]) {
+      if (latitude == null || longitude == null) continue;
+      bounds.extend([longitude, latitude]);
+      hasCoordinates = true;
+    }
+  }
+  if (hasCoordinates) map.fitBounds(bounds, { padding: 84, maxZoom: 3.4, duration: 0 });
+}
+
+function toGeoJson(events: EventLocation[]): GeoJSON.FeatureCollection<GeoJSON.Geometry> {
+  const features: GeoJSON.Feature<GeoJSON.Geometry>[] = [];
+  for (const event of events) {
+    const properties = { id: event.id, severity: event.severity, title: event.title };
+    const hasRoute = event.origin_latitude != null && event.origin_longitude != null
+      && event.destination_latitude != null && event.destination_longitude != null;
+
+    if (hasRoute) {
+      const origin: [number, number] = [event.origin_longitude!, event.origin_latitude!];
+      const destination: [number, number] = [event.destination_longitude!, event.destination_latitude!];
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: [origin, destination] },
+        properties: { ...properties, kind: "route" },
+      });
+      features.push(
+        { type: "Feature", geometry: { type: "Point", coordinates: origin }, properties: { ...properties, kind: "origin" } },
+        { type: "Feature", geometry: { type: "Point", coordinates: destination }, properties: { ...properties, kind: "destination" } },
+      );
+    }
+
+    if (event.latitude != null && event.longitude != null) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [event.longitude, event.latitude] },
+        properties: { ...properties, kind: "location" },
+      });
+    }
+  }
   return {
     type: "FeatureCollection",
-    features: pointEvents.map((e) => ({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [e.longitude, e.latitude] },
-      properties: { id: e.id, severity: e.severity, title: e.title },
-    })),
+    features,
   };
 }
 
@@ -69,6 +106,7 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const ready = useRef(false);
+  const framedEvents = useRef(false);
   const latest = useRef({ events, selectedId, onSelect, displayMode });
   const [mapError, setMapError] = useState<string | null>(null);
 
@@ -78,6 +116,9 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
 
   useEffect(() => {
     if (!container.current) return;
+    // MapLibre's default worker URL is emitted as a bundler-specific worker import.
+    // Serve the package worker as a regular asset so it works in Next's production build.
+    maplibregl.setWorkerUrl(new URL("/maplibre-gl-worker.mjs", window.location.href).toString());
     let map: maplibregl.Map;
     try {
       map = new maplibregl.Map({
@@ -126,22 +167,47 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
         },
       });
       map.addLayer({
+        id: "event-routes",
+        type: "line",
+        source: SOURCE,
+        filter: ["==", ["geometry-type"], "LineString"],
+        paint: {
+          "line-color": colorByTable(),
+          "line-width": ["interpolate", ["linear"], ["zoom"], 1, 3, 5, 5],
+          "line-opacity": 0.98,
+          "line-blur": 0.2,
+        },
+      });
+      map.addLayer({
         id: "event-points",
         type: "circle",
         source: SOURCE,
+        filter: ["==", ["geometry-type"], "Point"],
         paint: {
           "circle-color": colorByTable(),
-          "circle-radius": radiusByTable,
-          "circle-opacity": 0.85,
-          "circle-stroke-width": 1.5,
-          "circle-stroke-color": "#0b1220",
+          "circle-radius": ["case", ["==", ["get", "kind"], "origin"], 7, ["==", ["get", "kind"], "destination"], 10, radiusByTable],
+          "circle-opacity": 1,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#f8fafc",
+        },
+      });
+      map.addLayer({
+        id: "event-selected-route",
+        type: "line",
+        source: SOURCE,
+        filter: ["all", ["==", ["get", "id"], latest.current.selectedId ?? ""], ["==", ["geometry-type"], "LineString"]],
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": 4,
+          "line-opacity": 0.95,
+          "line-blur": 1,
         },
       });
       map.addLayer({
         id: "event-selected",
         type: "circle",
         source: SOURCE,
-        filter: ["==", ["get", "id"], latest.current.selectedId ?? ""],
+        filter: ["all", ["==", ["get", "id"], latest.current.selectedId ?? ""], ["==", ["geometry-type"], "Point"]],
         paint: {
           "circle-color": "rgba(0,0,0,0)",
           "circle-radius": 16,
@@ -152,10 +218,12 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
       map.setLayoutProperty("event-points", "visibility", latest.current.displayMode === "markers" ? "visible" : "none");
       map.setLayoutProperty("event-selected", "visibility", latest.current.displayMode === "markers" ? "visible" : "none");
 
-      map.on("click", "event-points", (e) => {
+      const selectFeature = (e: maplibregl.MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id as string | undefined;
         if (id) latest.current.onSelect(id);
-      });
+      };
+      map.on("click", "event-points", selectFeature);
+      map.on("click", "event-routes", selectFeature);
       map.on("mouseenter", "event-points", (e) => {
         map.getCanvas().style.cursor = "pointer";
         const f = e.features?.[0];
@@ -171,6 +239,18 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
         map.getCanvas().style.cursor = "";
         popup.remove();
       });
+      map.on("mouseenter", "event-routes", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "event-routes", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
+      map.on("mousemove", "event-routes", (e) => {
+        const feature = e.features?.[0];
+        if (!feature) return;
+        const severity = SEVERITY_META[feature.properties?.severity as keyof typeof SEVERITY_META];
+        popup.setLngLat(e.lngLat).setText(`${severity?.label ?? ""}: ${String(feature.properties?.title ?? "")}`).addTo(map);
+      });
+      fitToEvents(map, latest.current.events);
+      framedEvents.current = latest.current.events.some((event) =>
+        event.latitude != null || event.origin_latitude != null || event.destination_latitude != null,
+      );
       ready.current = true;
     });
 
@@ -186,6 +266,12 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
     const map = mapRef.current;
     if (!map || !ready.current) return;
     (map.getSource(SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(toGeoJson(events));
+    if (!framedEvents.current && events.length > 0) {
+      fitToEvents(map, events);
+      framedEvents.current = events.some((event) =>
+        event.latitude != null || event.origin_latitude != null || event.destination_latitude != null,
+      );
+    }
   }, [events]);
 
   useEffect(() => {
@@ -195,15 +281,23 @@ export default function ThreatMap({ events, selectedId, onSelect, displayMode = 
     map.setLayoutProperty("event-heatmap", "visibility", displayMode === "heatmap" ? "visible" : "none");
     map.setLayoutProperty("event-points", "visibility", markersVisible);
     map.setLayoutProperty("event-selected", "visibility", markersVisible);
+    map.setLayoutProperty("event-routes", "visibility", "visible");
+    map.setLayoutProperty("event-selected-route", "visibility", "visible");
   }, [displayMode]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready.current) return;
     map.setFilter("event-selected", ["==", ["get", "id"], selectedId ?? ""]);
+    map.setFilter("event-selected-route", ["all", ["==", ["get", "id"], selectedId ?? ""], ["==", ["geometry-type"], "LineString"]]);
     const sel = events.find((e) => e.id === selectedId);
     if (sel?.latitude != null && sel.longitude != null) {
       map.easeTo({ center: [sel.longitude, sel.latitude], zoom: Math.max(map.getZoom(), 3.5) });
+    } else if (sel?.origin_latitude != null && sel.origin_longitude != null && sel.destination_latitude != null && sel.destination_longitude != null) {
+      map.fitBounds(
+        [[sel.origin_longitude, sel.origin_latitude], [sel.destination_longitude, sel.destination_latitude]],
+        { padding: 64, maxZoom: 4.5, duration: 700 },
+      );
     }
   }, [events, selectedId]);
 

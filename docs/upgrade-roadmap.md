@@ -19,6 +19,11 @@ This roadmap reviews the three supplied product prompts against the existing Asc
 | Legal/compliance | No reference center exists. | Added an India-first searchable reference center, sourced to official government/regulator pages, with international references, clear applicability caveats, and legal disclaimer. Content lives in a version-controlled data layer rather than UI component markup. |
 | DPDP currency | Supplied prompt mentions only the 2023 Act. | Include the final DPDP Rules, 2025 and phased commencement information in the catalog; avoid implying all duties are already effective for every entity. Re-verify official sources before relying on this content. |
 | Advanced intelligence | No campaign correlation, organization/personal score, or persistent notification center is defined in the current data model. | Defer until trustworthy source fields, relationship rules, and user-specific event data are available; do not simulate these features. |
+| Guidance assistant | Curated workflow guidance only. | Added authenticated, role-aware Gemini integration with server-side secret handling and rules fallback. Gemini stays inactive until a deployment secret is configured. |
+| Phishing training | Existing single-message analysis. | Added database-backed fictional scenarios, scored attempts, progress, admin scenario editing, safe click-consequence walkthrough, and response practice. Department leaderboard awaits organization/team data. |
+| Security-event reporting | Private reports and analyst-reviewed promotion. | Added anonymous one-time report tracking and separately consented, privacy-safe map events through the existing event store/SSE pipeline. Evidence upload is still disabled pending private scanning storage. |
+| Cyber alert declarations | Telemetry-generated triage alerts only. | Added a distinct admin-approved draft/publish/expire/revoke lifecycle with immutable history, role checks, notifications, and linked map events. |
+| Endpoint defense | Endpoint registration and telemetry ingestion. | `/endpoints` now presents live source health, actual malware/ransomware events, critical alerts, the shared event map, and the existing registration controls. It remains empty when no agent data is connected. |
 | Admin legal editor | No general content-management or audit-backed publication workflow exists. | Current legal dataset is maintained in source control. Database-backed editing should follow a dedicated authorized API, schema, migration, and audit trail rather than a frontend-only editor. |
 
 ## Implemented in this pass
@@ -32,7 +37,7 @@ This roadmap reviews the three supplied product prompts against the existing Asc
 ## Follow-on implementation sequence
 
 1. Configure private object storage, content-type/size validation, malware scanning, retention controls, and private attachment retrieval before enabling uploads.
-2. **Completed:** administrator-only report promotion writes through the common event-ingestion pipeline after explicit content and location review. It requires analyst-entered event text and independently verified coordinates rounded to two decimals; records a report/event link, audit entry, alerts, and live updates. Reporter-entered location text and notes are never copied or geocoded.
+2. **Completed:** administrator-only report promotion writes through the common event-ingestion pipeline after explicit content and location review. Analysts can request city-level candidate matches for the submitted place name, select a result, and confirm its coordinates rounded to two decimals. A persistent cache avoids repeat provider calls; the report remains private until publication. The promoted event records the report/event link, audit entry, alerts, and live updates.
 3. **Completed:** synchronize map/globe selection focus; add a MapLibre heatmap based on backend event coordinates; expose the shared time-range filter directly on the visualization panel.
 4. **Completed:** append-only report timelines preserve public lifecycle changes separately from internal assignments and notes.
 5. **Completed:** high-severity alert notifications are persisted per active analyst/admin, isolated by recipient, and have individual and bulk read state.
@@ -42,3 +47,10 @@ This roadmap reviews the three supplied product prompts against the existing Asc
 ## Production boundary
 
 Legal summaries are an awareness aid, not legal advice. Application of a law depends on facts, jurisdiction, sector, and commencement provisions. Official sources should be rechecked routinely. No provider health, threat count, geolocation, campaign, or analytics value should be presented as live unless returned by a real configured backend source.
+
+## Configuration and remaining prerequisites
+
+- Set `GEMINI_API_KEY` in the local ignored `.env` file or deployment secret manager to activate Gemini. Never commit it or paste it into the frontend. With no key, the assistant reports `rules` as its active provider.
+- Configure private object storage, upload size/type rules, malware scanning, retention, and authorized retrieval before enabling evidence attachments.
+- The current user schema has no department/team or organization entity. A private department leaderboard needs that data model and tenant boundaries first; no synthetic ranking is shown.
+- Map updates use the existing single-process SSE broker. Scale-out deployment requires shared pub/sub (for example Redis) before running multiple API replicas.

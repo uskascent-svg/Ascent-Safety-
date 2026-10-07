@@ -87,7 +87,7 @@ export default function Header() {
   const notifications = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api<NotificationPage>("/api/notifications?limit=10"),
-    enabled: canViewPanel,
+    enabled: status === "authed",
     refetchInterval: 30_000,
   });
   const readNotification = useMutation({
@@ -100,12 +100,8 @@ export default function Header() {
   });
   const navItems = [
     ...CORE_NAV,
-    ...(isAdmin
-      ? [
-          { href: "/endpoints", label: "Endpoints", icon: LockKeyhole },
-          { href: "/sensors", label: "Network sensors", icon: Network },
-        ]
-      : []),
+    ...(canViewPanel ? [{ href: "/endpoints", label: "Defense center", icon: LockKeyhole }] : []),
+    ...(isAdmin ? [{ href: "/sensors", label: "Network sensors", icon: Network }] : []),
   ];
 
   const navLink = (href: string, label: string, Icon: (typeof CORE_NAV)[number]["icon"]) => {
@@ -116,7 +112,7 @@ export default function Header() {
         href={href}
         onClick={() => setMobileOpen(false)}
         aria-current={active ? "page" : undefined}
-        className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-[13px] transition duration-200 ${
+        className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition duration-200 ${
           active
             ? "border-accent/20 bg-accent/[0.09] text-white shadow-[inset_2px_0_0_0_#00d9ff,0_8px_24px_-20px_rgba(0,217,255,0.65)]"
             : "border-transparent text-slate-400 hover:border-white/[0.06] hover:bg-white/[0.035] hover:text-slate-100"
@@ -124,7 +120,7 @@ export default function Header() {
       >
         <Icon
           aria-hidden="true"
-          className={`h-4 w-4 shrink-0 ${active ? "text-accent-strong" : "text-slate-500 group-hover:text-slate-300"}`}
+          className={`h-[18px] w-[18px] shrink-0 ${active ? "text-accent-strong" : "text-slate-500 group-hover:text-slate-300"}`}
         />
         {label}
       </Link>
@@ -140,11 +136,11 @@ export default function Header() {
           </span>
           <span className="leading-tight">
             <span className="block text-[13px] font-semibold tracking-[0.14em] text-white">ASCENT</span>
-            <span className="mt-1 block text-[9px] uppercase tracking-[0.23em] text-slate-500">Security intelligence</span>
+            <span className="mt-1 block text-[10px] uppercase tracking-[0.2em] text-slate-500">Security intelligence</span>
           </span>
         </Link>
 
-        <p className="eyebrow mb-2 px-3 text-[9px] text-slate-600">Workspace</p>
+        <p className="eyebrow mb-2 px-3 text-[10px] text-slate-600">Workspace</p>
         <nav aria-label="Primary" className="flex flex-col gap-1">
           {navItems.map(({ href, label, icon }) => navLink(href, label, icon))}
         </nav>
@@ -155,8 +151,8 @@ export default function Header() {
               {user?.full_name?.slice(0, 1).toUpperCase() ?? "A"}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-slate-200">{user?.full_name ?? "Guest workspace"}</p>
-              <p className="mt-0.5 truncate text-[10px] text-slate-500">
+              <p className="truncate text-[13px] font-medium text-slate-200">{user?.full_name ?? "Guest workspace"}</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">
                 {user?.roles.includes("ADMINISTRATOR") ? "Administrator" : user ? "Security workspace" : "Read-only preview"}
               </p>
             </div>
@@ -170,7 +166,7 @@ export default function Header() {
               <LockKeyhole className="h-4 w-4" aria-hidden="true" /> Sign in
             </Link>
           )}
-          <p className="mt-4 px-2 font-mono text-[9px] uppercase tracking-[0.15em] text-slate-700">Ascent Safety · Operations</p>
+          <p className="mt-4 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-slate-600">Ascent Safety · Operations</p>
         </div>
       </aside>
 
@@ -198,22 +194,22 @@ export default function Header() {
                 <Search className="h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden="true" />
                 <input aria-label="Search security events" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search events" className="min-w-0 flex-1 bg-transparent py-2 text-[11px] text-slate-200 outline-none placeholder:text-slate-600" />
               </form>
-              <div className="relative">
+            </>}
+            {status === "authed" && <div className="relative">
                 <button type="button" aria-label={`Notifications${notifications.data?.unread ? `, ${notifications.data.unread} unread` : ""}`} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)} className="relative rounded-lg border border-white/[0.08] p-2 text-slate-400 transition hover:border-white/[0.16] hover:text-white">
                   <BellRing className="h-4 w-4" aria-hidden="true" />
                   {(notifications.data?.unread ?? 0) > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold text-cyber-black">{notifications.data!.unread > 99 ? "99+" : notifications.data!.unread}</span>}
                 </button>
                 {notificationsOpen && <div className="absolute right-0 top-11 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0b1020] shadow-2xl" role="region" aria-label="Personal notifications">
                   <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3"><div><p className="text-xs font-medium text-white">Security notifications</p><p className="mt-1 text-[10px] text-slate-500">{notifications.data?.unread ?? 0} unread</p></div><button type="button" disabled={!notifications.data?.unread || readAllNotifications.isPending} onClick={() => readAllNotifications.mutate()} className="text-[10px] text-accent-strong disabled:text-slate-600">Mark all read</button></div>
-                  {notifications.isPending ? <p className="p-5 text-xs text-slate-500">Loading notifications…</p> : notifications.isError ? <p className="p-5 text-xs text-slate-400">Notifications are unavailable.</p> : notifications.data?.items.length ? <ul className="max-h-80 divide-y divide-white/[0.06] overflow-y-auto">{notifications.data.items.map((item) => <li key={item.id}><button type="button" onClick={() => { if (!item.read_at) readNotification.mutate(item.id); setNotificationsOpen(false); router.push(`/security-panel?event_id=${encodeURIComponent(item.event_id)}`); }} className="w-full px-4 py-3 text-left transition hover:bg-white/[0.04]"><span className="flex items-start gap-2"><span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${item.read_at ? "bg-slate-700" : "bg-accent"}`} /><span><span className="block line-clamp-2 text-xs text-slate-200">{item.title}</span><span className="mt-1 block text-[10px] text-slate-600">{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</span></span></span></button></li>)}</ul> : <p className="p-5 text-xs text-slate-500">No security notifications yet.</p>}
-                  <Link href="/security-panel#alerts-list" onClick={() => setNotificationsOpen(false)} className="block border-t border-white/[0.07] px-4 py-3 text-[10px] text-accent-strong hover:bg-white/[0.025]">Open alert queue</Link>
+                  {notifications.isPending ? <p className="p-5 text-xs text-slate-500">Loading notifications…</p> : notifications.isError ? <p className="p-5 text-xs text-slate-400">Notifications are unavailable.</p> : notifications.data?.items.length ? <ul className="max-h-80 divide-y divide-white/[0.06] overflow-y-auto">{notifications.data.items.map((item) => <li key={item.id}><button type="button" onClick={() => { if (!item.read_at) readNotification.mutate(item.id); setNotificationsOpen(false); router.push(canViewPanel ? `/security-panel?event_id=${encodeURIComponent(item.event_id)}` : "/"); }} className="w-full px-4 py-3 text-left transition hover:bg-white/[0.04]"><span className="flex items-start gap-2"><span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${item.read_at ? "bg-slate-700" : "bg-accent"}`} /><span><span className="block line-clamp-2 text-xs text-slate-200">{item.title}</span><span className="mt-1 block text-[10px] text-slate-600">{new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.created_at))}</span></span></span></button></li>)}</ul> : <p className="p-5 text-xs text-slate-500">No security notifications yet.</p>}
+                  {canViewPanel && <Link href="/security-panel#alerts-list" onClick={() => setNotificationsOpen(false)} className="block border-t border-white/[0.07] px-4 py-3 text-[10px] text-accent-strong hover:bg-white/[0.025]">Open alert queue</Link>}
                 </div>}
-              </div>
-              <Link href="/security-panel#alerts-list" aria-label={`Open alerts${alertSummary.data?.total ? `, ${alertSummary.data.total} open` : ""}`} className="relative rounded-lg border border-white/[0.08] p-2 text-slate-400 transition hover:border-white/[0.16] hover:text-white">
+              </div>}
+            {canViewPanel && <Link href="/security-panel#alerts-list" aria-label={`Open alerts${alertSummary.data?.total ? `, ${alertSummary.data.total} open` : ""}`} className="relative rounded-lg border border-white/[0.08] p-2 text-slate-400 transition hover:border-white/[0.16] hover:text-white">
                 <Bell className="h-4 w-4" aria-hidden="true" />
                 {(alertSummary.data?.total ?? 0) > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-semibold text-cyber-black">{alertSummary.data!.total > 99 ? "99+" : alertSummary.data!.total}</span>}
-              </Link>
-            </>}
+              </Link>}
             <SystemStatus />
             {user && <span className="hidden max-w-36 truncate text-xs text-slate-400 sm:block">{user.full_name}</span>}
             {!user && status !== "loading" && <Link href="/login" className="text-xs font-medium text-accent-strong hover:text-white">Sign in</Link>}

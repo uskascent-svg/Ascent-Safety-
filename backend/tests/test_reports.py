@@ -42,9 +42,24 @@ def admin(client, make_user, promote):
     return headers
 
 
-def test_report_submission_is_authenticated_private_and_trackable(client, reporter):
-    denied = client.post("/api/reports", json=report_payload())
-    assert denied.status_code == 401
+def test_report_submission_supports_anonymous_tracking_and_authenticated_reports(client, reporter):
+    anonymous = client.post("/api/reports", json=report_payload())
+    assert anonymous.status_code == 201, anonymous.text
+    anonymous_record = anonymous.json()
+    assert anonymous_record["tracking_token"]
+    assert "reporter_id" not in anonymous_record
+    tracked = client.post(
+        f"/api/reports/track/{anonymous_record['report_code']}",
+        json={"token": anonymous_record["tracking_token"]},
+    )
+    assert tracked.status_code == 200
+    assert tracked.json()["report_code"] == anonymous_record["report_code"]
+    assert (
+        client.post(
+            f"/api/reports/track/{anonymous_record['report_code']}", json={"token": "x" * 40}
+        ).status_code
+        == 404
+    )
 
     response = client.post("/api/reports", json=report_payload(), headers=reporter)
     assert response.status_code == 201, response.text
@@ -53,6 +68,7 @@ def test_report_submission_is_authenticated_private_and_trackable(client, report
     assert record["status"] == "submitted"
     assert "reporter_id" not in record
     assert "internal_notes" not in record
+    assert record["tracking_token"] is None
 
     listing = client.get("/api/reports/mine", headers=reporter)
     assert listing.status_code == 200
@@ -241,3 +257,88 @@ def test_report_promotion_requires_admin_review_and_publishes_sanitized_event(
         assert event.title == payload["title"] and event.description == payload["description"]
         audit_log = db.scalar(select(AuditLog).where(AuditLog.action == "security_report.promote"))
         assert audit_log and audit_log.details["event_id"] == event_id
+
+
+def test_admin_can_resolve_report_place_name_only_during_review(
+    client, reporter, admin, monkeypatch
+):
+    report = client.post("/api/reports", json=report_payload(), headers=reporter).json()
+    code = report["report_code"]
+    endpoint = f"/api/reports/admin/{code}/location-options"
+
+    denied = client.get(endpoint, headers=reporter)
+    assert denied.status_code == 403
+    not_in_review = client.get(endpoint, headers=admin)
+    assert not_in_review.status_code == 409
+
+    reviewed = client.patch(
+        f"/api/reports/admin/{code}", json={"status": "under_review"}, headers=admin
+    )
+    assert reviewed.status_code == 200
+
+    def fake_resolve(db, place_name):
+        assert place_name == "Pune, India"
+        return (
+            [
+                {
+                    "label": "Pune, Maharashtra, India",
+                    "locality": "Pune",
+                    "region": "Maharashtra",
+                    "country": "India",
+                    "latitude": 18.52,
+                    "longitude": 73.86,
+                }
+            ],
+            False,
+        )
+
+    monkeypatch.setattr("app.api.reports.resolve_place_name", fake_resolve)
+    response = client.get(endpoint, headers=admin)
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["latitude"] == 18.52
+    assert response.json()["items"][0]["longitude"] == 73.86
+    assert "OpenStreetMap" in response.json()["attribution"]
+
+
+def test_geocoder_rejects_address_like_report_place_names():
+    from app.services.geocoding import _normalize_query
+
+    with pytest.raises(ValueError):
+        _normalize_query("42 Main Street, Pune")
+    with pytest.raises(ValueError):
+        _normalize_query("person@example.com")
+
+
+def test_place_name_matches_are_cached_without_persisting_search_text(session_factory, monkeypatch):
+    from app.models import GeocodeCache
+    from app.services import geocoding
+
+    candidates = [
+        {
+            "label": "Pune, Maharashtra, India",
+            "locality": "Pune",
+            "region": "Maharashtra",
+            "country": "India",
+            "latitude": 18.52,
+            "longitude": 73.86,
+        }
+    ]
+    calls = 0
+
+    def fake_fetch(query):
+        nonlocal calls
+        calls += 1
+        assert query == "Pune, India"
+        return candidates
+
+    monkeypatch.setattr(geocoding, "_fetch_candidates", fake_fetch)
+    with session_factory() as db:
+        first, first_cached = geocoding.resolve_place_name(db, "Pune, India")
+        second, second_cached = geocoding.resolve_place_name(db, "Pune, India")
+        row = db.scalar(select(GeocodeCache))
+        assert row.query_hash != "Pune, India"
+        assert "Pune, India" not in str(row.results)
+
+    assert first == second == candidates
+    assert not first_cached and second_cached
+    assert calls == 1

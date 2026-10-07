@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # abuse.ch Auth-Key (URLhaus now requires one; free at auth.abuse.ch)
     urlhaus_auth_key: str | None = None
     intel_timeout_seconds: float = 5.0
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.8-flash"
+    # Public Nominatim is used only when an administrator explicitly resolves a report place name.
+    geocoding_base_url: str = "https://nominatim.openstreetmap.org"
+    geocoding_user_agent: str = "AscentSafety/0.3 (https://github.com/uskascent-svg/Ascent-Safety-)"
     # Alerts are created for new events at or above this severity.
     alert_min_severity: str = "high"
     # Ransomware-behaviour thresholds (tune per environment)
@@ -45,11 +50,24 @@ class Settings(BaseSettings):
     # If unset, event ingestion is disabled.
     ingest_api_key: str | None = Field(default=None, min_length=32)
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _use_psycopg3_driver(cls, value):
+        # Render and several managed Postgres providers supply a generic postgres URL.
+        # This project pins psycopg 3, so make SQLAlchemy select that driver explicitly.
+        if isinstance(value, str):
+            if value.startswith("postgres://"):
+                return "postgresql+psycopg://" + value.removeprefix("postgres://")
+            if value.startswith("postgresql://"):
+                return "postgresql+psycopg://" + value.removeprefix("postgresql://")
+        return value
+
     @field_validator(
         "virustotal_api_key",
         "abuseipdb_api_key",
         "otx_api_key",
         "urlhaus_auth_key",
+        "gemini_api_key",
         "ingest_api_key",
         "ml_model_path",
         mode="before",

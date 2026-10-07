@@ -90,23 +90,52 @@ export default function ThreatGlobe({ events, selectedId, onSelect, onUnavailabl
 
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true, powerPreference: "low-power" });
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, powerPreference: "low-power" });
     } catch {
       fail("WebGL could not be initialized on this device.");
       return;
     }
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.6));
-    renderer.setClearColor(0x030712, 1);
+    renderer.setClearColor(0x030712, 0);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.className = "block h-full w-full touch-none outline-none";
     renderer.domElement.setAttribute("aria-hidden", "true");
     host.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x030712);
     const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-    camera.position.set(0, 0.08, 3.35);
+    camera.position.set(0, 0.08, 3.6);
+
+    // A sparse 3D star shell sits far behind the planet. Its render order lets the opaque Earth
+    // occlude stars naturally, while the points remain visible in the space around its silhouette.
+    const starCount = 1800;
+    const starPositions = new Float32Array(starCount * 3);
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    for (let index = 0; index < starCount; index += 1) {
+      const y = 1 - (index / (starCount - 1)) * 2;
+      const ringRadius = Math.sqrt(1 - y * y);
+      const angle = goldenAngle * index;
+      const radius = 42;
+      starPositions[index * 3] = Math.cos(angle) * ringRadius * radius;
+      starPositions[index * 3 + 1] = y * radius;
+      starPositions[index * 3 + 2] = Math.sin(angle) * ringRadius * radius;
+    }
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
+    const starMaterial = new THREE.PointsMaterial({
+      color: 0x91b9eb,
+      size: 1.35,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 0.48,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const starfield = new THREE.Points(starGeometry, starMaterial);
+    starfield.renderOrder = -10;
+    scene.add(starfield);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -163,7 +192,7 @@ export default function ThreatGlobe({ events, selectedId, onSelect, onUnavailabl
           varying vec3 vViewPosition;
           void main() {
             float rim = 1.0 - max(dot(normalize(vNormal), normalize(vViewPosition)), 0.0);
-            float glow = pow(rim, 3.2) * 0.62;
+            float glow = pow(rim, 3.2) * 0.4;
             gl_FragColor = vec4(0.16, 0.56, 0.96, glow);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -426,6 +455,8 @@ export default function ThreatGlobe({ events, selectedId, onSelect, onUnavailabl
       focusedIdRef.current = null;
       if (eventGroup) disposeObject(eventGroup);
       if (earthGroup) disposeObject(earthGroup);
+      starGeometry.dispose();
+      starMaterial.dispose();
       dayTexture?.dispose();
       nightTexture?.dispose();
       renderer.dispose();
@@ -435,7 +466,21 @@ export default function ThreatGlobe({ events, selectedId, onSelect, onUnavailabl
 
   return (
     <div className="absolute inset-0" aria-label="Interactive three-dimensional Earth" role="region">
-      <div ref={hostRef} className="absolute inset-0" />
+      <div
+        className="pointer-events-none absolute inset-0 overflow-hidden bg-[#030712]"
+        aria-hidden="true"
+      >
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(ellipse 38% 43% at 50% 47%, rgba(0, 118, 214, 0.20) 0%, rgba(12, 47, 91, 0.13) 42%, transparent 78%), radial-gradient(ellipse 72% 78% at 50% 48%, rgba(12, 36, 76, 0.20) 0%, transparent 76%)",
+          }}
+        />
+
+      </div>
+      <div ref={hostRef} className="absolute inset-0 z-[1]" />
+
       {!ready && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status">
           <span className="rounded-md border border-slate-700 bg-cyber-black/80 px-3 py-2 text-xs text-slate-300">
@@ -485,7 +530,7 @@ export default function ThreatGlobe({ events, selectedId, onSelect, onUnavailabl
           onClick={() => {
             const controls = controlsRef.current;
             if (!controls) return;
-            controls.object.position.set(0, 0.08, 3.35);
+            controls.object.position.set(0, 0.08, 3.6);
             controls.target.set(0, 0, 0);
             controls.update();
           }}

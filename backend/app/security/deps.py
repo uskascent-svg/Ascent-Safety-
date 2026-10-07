@@ -40,6 +40,14 @@ def get_current_user(
     return _user_from_creds(creds, db)
 
 
+def get_optional_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Resolve a valid user when a bearer token is present, but allow anonymous submissions."""
+    return _user_from_creds(creds, db) if creds is not None else None
+
+
 def require_roles(*allowed: RoleName):
     """Authorize against roles stored in the DB (not token claims) so changes apply immediately."""
     allowed_names = {r.value for r in allowed}

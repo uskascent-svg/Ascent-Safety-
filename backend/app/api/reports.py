@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import secrets
 from datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -13,6 +16,7 @@ from app.models import (
     SecurityReport,
     SecurityReportNote,
     Severity,
+    ThreatType,
     User,
 )
 from app.models.operations import record_report_activity
@@ -20,16 +24,20 @@ from app.schemas.reports import (
     AdminReportOut,
     AdminReportPage,
     AdminReportUpdate,
+    AnonymousReportTrack,
+    GeocodeOptionPage,
     ReportActivityOut,
     ReportCreate,
     ReportOut,
     ReportPage,
     ReportPromotion,
+    ReportSubmissionOut,
 )
 from app.schemas.security import SecurityEventCreate
-from app.security.deps import get_current_user, require_roles
+from app.security.deps import get_current_user, get_optional_user, require_roles
 from app.services import audit
 from app.services.event_ingest import DuplicateEvent, publish, store_event
+from app.services.geocoding import GeocodingUnavailable, resolve_place_name
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -71,8 +79,8 @@ def _admin_out(report: SecurityReport) -> AdminReportOut:
             ],
         },
         reporter_id=report.reporter_id,
-        reporter_name=report.reporter.full_name,
-        reporter_email=report.reporter.email,
+        reporter_name=report.reporter.full_name if report.reporter else "Anonymous reporter",
+        reporter_email=report.reporter.email if report.reporter else "Not provided",
         assigned_to_id=report.assigned_to_id,
         assigned_to_name=report.assigned_to.full_name if report.assigned_to else None,
         internal_notes=[
@@ -84,6 +92,7 @@ def _admin_out(report: SecurityReport) -> AdminReportOut:
             for note in sorted(report.notes, key=lambda item: (item.created_at, str(item.id)))
         ],
         promoted_event_id=report.promoted_event_id,
+        published_event_id=report.published_event_id,
     )
 
 
@@ -102,16 +111,20 @@ def _reporter_out(report: SecurityReport) -> ReportOut:
     return result
 
 
-@router.post("", response_model=ReportOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ReportSubmissionOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/hour")
 def create_report(
     request: Request,
     payload: ReportCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ):
+    anonymous = payload.anonymous or user is None
+    tracking_token = secrets.token_urlsafe(32) if anonymous else None
+    token_hash = hashlib.sha256(tracking_token.encode()).hexdigest() if tracking_token else None
     report = SecurityReport(
-        reporter_id=user.id,
+        reporter_id=user.id if user and not anonymous else None,
+        anonymous_token_hash=token_hash,
         issue_type=payload.issue_type.value,
         title=payload.title,
         description=payload.description,
@@ -124,16 +137,111 @@ def create_report(
     )
     db.add(report)
     db.flush()
-    record_report_activity(db, report.id, "submitted", "Report submitted", user.id, is_public=True)
+
+    location_status = "not_shared"
+    event = None
+    if payload.publish_to_map:
+        location_status = "unavailable"
+        place = None
+        if payload.source_location:
+            try:
+                candidates, _ = resolve_place_name(db, payload.source_location, commit=False)
+                if len(candidates) == 1:
+                    place = candidates[0]
+                    location_status = "resolved"
+            except (ValueError, GeocodingUnavailable):
+                # Keep the privacy-safe event in the feed while accurately marking its location
+                # unavailable when the submitted place cannot be resolved with confidence.
+                place = None
+        threat_type = {
+            "phishing_website": ThreatType.PHISHING,
+            "suspicious_url": ThreatType.PHISHING,
+            "malicious_email": ThreatType.PHISHING,
+            "scam_message": ThreatType.PHISHING,
+            "credential_theft": ThreatType.PHISHING,
+            "impersonation": ThreatType.PHISHING,
+            "malware": ThreatType.MALWARE_RANSOMWARE,
+            "suspicious_attachment": ThreatType.MALWARE_RANSOMWARE,
+        }.get(payload.issue_type.value, ThreatType.OTHER)
+        event_payload = SecurityEventCreate(
+            source="community_report",
+            external_id=report.report_code,
+            threat_type=threat_type,
+            # The user's claimed severity remains in the private report. Public events use this
+            # server-defined severity until an analyst validates the evidence.
+            severity=Severity.MEDIUM,
+            status="open",
+            title="Community-reported security issue",
+            description=(
+                "Unverified community report. Details remain private while the security team "
+                "reviews the evidence."
+            ),
+            country=place["country"] if place else None,
+            region=(place["region"] or place["locality"]) if place else None,
+            latitude=place["latitude"] if place else None,
+            longitude=place["longitude"] if place else None,
+            occurred_at=payload.reported_at,
+        )
+        event = store_event(
+            db,
+            event_payload,
+            request,
+            {"report_code": report.report_code, "publication": "consented_privacy_safe_summary"},
+        )
+        report.published_event_id = event.id
+        record_report_activity(
+            db,
+            report.id,
+            "map_published",
+            "A privacy-safe event summary was shared with the organization map",
+            user.id if user else None,
+            is_public=True,
+        )
+    record_report_activity(
+        db, report.id, "submitted", "Report submitted", user.id if user else None, is_public=True
+    )
     audit.record(
         db,
         "security_report.submit",
         request,
-        user.id,
-        {"report_code": report.report_code, "issue_type": report.issue_type},
+        user.id if user else None,
+        {
+            "report_code": report.report_code,
+            "issue_type": report.issue_type,
+            "anonymous": anonymous,
+            "publish_to_map": payload.publish_to_map,
+            "location_status": location_status,
+        },
     )
     db.commit()
     db.refresh(report)
+    if event:
+        publish(event)
+    return ReportSubmissionOut(
+        **_reporter_out(report).model_dump(),
+        tracking_token=tracking_token,
+        location_status=location_status,
+        published_event_id=report.published_event_id,
+    )
+
+
+@router.post("/track/{report_code}", response_model=ReportOut)
+@limiter.limit("10/minute")
+def track_anonymous_report(
+    request: Request,
+    report_code: str,
+    payload: AnonymousReportTrack,
+    db: Session = Depends(get_db),
+):
+    report = db.scalar(select(SecurityReport).where(SecurityReport.report_code == report_code))
+    supplied_hash = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()
+    if (
+        report is None
+        or report.reporter_id is not None
+        or report.anonymous_token_hash is None
+        or not hmac.compare_digest(report.anonymous_token_hash, supplied_hash)
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     return _reporter_out(report)
 
 
@@ -298,6 +406,39 @@ def update_report(
     db.commit()
     db.refresh(report)
     return _admin_out(report)
+
+
+@router.get("/admin/{report_code}/location-options", response_model=GeocodeOptionPage)
+@limiter.limit("10/minute")
+def report_location_options(
+    request: Request,
+    report_code: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(RoleName.ADMINISTRATOR)),
+):
+    """Resolve a private report's city/region name only after an admin requests it."""
+    report = db.scalar(select(SecurityReport).where(SecurityReport.report_code == report_code))
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    if report.promoted_event_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Report has already been published")
+    if report.status not in {ReportStatus.UNDER_REVIEW.value, ReportStatus.INVESTIGATING.value}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Move the report into active review first")
+    if not report.source_location:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "This report has no location name"
+        )
+    try:
+        items, cached = resolve_place_name(db, report.source_location)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
+    except GeocodingUnavailable:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Place lookup is temporarily unavailable. You can retry or enter verified coarse "
+            "coordinates.",
+        ) from None
+    return GeocodeOptionPage(items=items, cached=cached)
 
 
 @router.post(

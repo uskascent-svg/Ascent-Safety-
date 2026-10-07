@@ -13,10 +13,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api import (
     alerts,
     auth,
+    cyber_alerts,
     dashboard,
     endpoints,
+    guidance,
     notifications,
     phishing,
+    phishing_training,
     reports,
     security_events,
     sensors,
@@ -96,6 +99,9 @@ app.include_router(users.router)
 app.include_router(security_events.router)
 app.include_router(dashboard.router)
 app.include_router(phishing.router)
+app.include_router(guidance.router)
+app.include_router(phishing_training.router)
+app.include_router(cyber_alerts.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
 app.include_router(threat_intel.router)

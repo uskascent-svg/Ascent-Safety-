@@ -1,6 +1,7 @@
 from app.models.alert import Alert
 from app.models.auth import AuditLog, RefreshToken, Role, RoleName, User, user_roles
 from app.models.base import Base
+from app.models.cyber_alert import CyberAlertActivity, CyberAlertDeclaration
 from app.models.endpoint import Endpoint, EndpointFinding
 from app.models.network import NetworkFinding, NetworkSensor, TlsBaseline
 from app.models.operations import ReportActivity, UserNotification
@@ -13,7 +14,8 @@ from app.models.security_event import (
     Severity,
     ThreatType,
 )
-from app.models.threat_intel import ThreatIntelCache
+from app.models.threat_intel import GeocodeCache, ThreatIntelCache
+from app.models.training import TrainingAttempt, TrainingScenario
 
 __all__ = [
     "ACTIVE_STATUSES",
@@ -22,11 +24,14 @@ __all__ = [
     "NetworkSensor",
     "TlsBaseline",
     "Alert",
+    "CyberAlertActivity",
+    "CyberAlertDeclaration",
     "Endpoint",
     "EndpointFinding",
     "AuditLog",
     "Base",
     "EventStatus",
+    "GeocodeCache",
     "PhishingAnalysis",
     "PhishingIndicator",
     "ReportStatus",
@@ -38,6 +43,8 @@ __all__ = [
     "RoleName",
     "SecurityEvent",
     "ThreatIntelCache",
+    "TrainingAttempt",
+    "TrainingScenario",
     "Severity",
     "ThreatType",
     "User",

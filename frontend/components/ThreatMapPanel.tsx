@@ -29,7 +29,6 @@ export default function ThreatMapPanel({ filters, selectedId, onSelect, onRangeC
   const { data, isPending, isError, refetch } = useLocations(filters, true);
   const events = data?.items ?? [];
   const globeEvents = events.slice(0, 250);
-  const mappedEvents = events.filter((event) => event.latitude !== null && event.longitude !== null);
   const [view, setView] = useState<"globe" | "map">("globe");
   const [displayMode, setDisplayMode] = useState<"markers" | "heatmap">("markers");
   const [fallbackReason, setFallbackReason] = useState<string | null>(null);
@@ -123,16 +122,6 @@ export default function ThreatMapPanel({ filters, selectedId, onSelect, onRangeC
             <EmptyState
               title="No geographic event data yet"
               hint="Connected sources can report an event location or an explicit origin and destination route."
-            />
-          </div>
-        </div>
-      )}
-      {data && view === "map" && events.length > 0 && mappedEvents.length === 0 && (
-        <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-          <div className="glass bg-ink-950/90">
-            <EmptyState
-              title="Routes are shown on the 3D Earth"
-              hint="The 2D map can display reported event locations. This result contains explicit route endpoints only."
             />
           </div>
         </div>

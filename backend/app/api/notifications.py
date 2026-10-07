@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.models import User, UserNotification
 from app.schemas.notifications import NotificationOut, NotificationPage
-from app.security.deps import analyst_or_admin
+from app.security.deps import get_current_user
 from app.services import audit
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 def list_notifications(
     limit: int = 20,
     db: Session = Depends(get_db),
-    user: User = Depends(analyst_or_admin),
+    user: User = Depends(get_current_user),
 ):
     limit = max(1, min(limit, 50))
     total = (
@@ -49,7 +49,7 @@ def mark_notification_read(
     request: Request,
     notification_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(analyst_or_admin),
+    user: User = Depends(get_current_user),
 ):
     item = db.scalar(
         select(UserNotification).where(
@@ -70,7 +70,7 @@ def mark_notification_read(
 def mark_all_notifications_read(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(analyst_or_admin),
+    user: User = Depends(get_current_user),
 ):
     now = datetime.now(UTC)
     changed = (

@@ -60,21 +60,22 @@ def _maybe_alert(db: Session, event: SecurityEvent, request: Request | None) -> 
     alert = Alert(event_id=event.id, severity=event.severity, title=event.title)
     db.add(alert)
     db.flush()
-    recipients = db.scalars(
-        select(User)
-        .join(User.roles)
-        .where(
-            Role.name.in_(["SECURITY_ANALYST", "ADMINISTRATOR"]),
-            User.is_active.is_(True),
-            User.deleted_at.is_(None),
+    if event.source != "cyber_alert_declaration":
+        recipients = db.scalars(
+            select(User)
+            .join(User.roles)
+            .where(
+                Role.name.in_(["SECURITY_ANALYST", "ADMINISTRATOR"]),
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+            )
+        ).unique()
+        db.add_all(
+            [
+                UserNotification(user_id=recipient.id, event_id=event.id, title=event.title)
+                for recipient in recipients
+            ]
         )
-    ).unique()
-    db.add_all(
-        [
-            UserNotification(user_id=recipient.id, event_id=event.id, title=event.title)
-            for recipient in recipients
-        ]
-    )
     audit.record(
         db,
         "alert.create",

@@ -23,3 +23,15 @@ class ThreatIntelCache(Base):
     result: Mapped[dict] = mapped_column(JSON)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class GeocodeCache(Base):
+    """Cached city-level place-name matches; raw report location text is not retained."""
+
+    __tablename__ = "geocode_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    query_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    results: Mapped[list] = mapped_column(JSON)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

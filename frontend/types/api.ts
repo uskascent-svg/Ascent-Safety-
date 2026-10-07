@@ -27,6 +27,12 @@ export interface SecurityReport {
   timeline: { action: string; summary: string; created_at: string; actor_name: string | null }[];
 }
 
+export interface ReportSubmission extends SecurityReport {
+  tracking_token: string | null;
+  location_status: "not_shared" | "resolved" | "unavailable";
+  published_event_id: string | null;
+}
+
 export interface AdminSecurityReport extends SecurityReport {
   reporter_id: string;
   reporter_name: string;
@@ -35,6 +41,7 @@ export interface AdminSecurityReport extends SecurityReport {
   assigned_to_name: string | null;
   internal_notes: { content: string; created_at: string; author: string }[];
   promoted_event_id: string | null;
+  published_event_id: string | null;
 }
 
 export interface ReportPage {
@@ -49,6 +56,21 @@ export interface AdminReportPage {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface GeocodeOption {
+  label: string;
+  locality: string;
+  region: string | null;
+  country: string | null;
+  latitude: number;
+  longitude: number;
+}
+
+export interface GeocodeOptionPage {
+  items: GeocodeOption[];
+  cached: boolean;
+  attribution: string;
 }
 
 export interface NotificationItem {
@@ -191,6 +213,61 @@ export interface PhishingRequest {
   subject?: string;
   body_text?: string;
   check_threat_intel?: boolean;
+}
+
+export interface TrainingScenario {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  difficulty: "beginner" | "intermediate" | "advanced";
+  artifact_type: "email" | "sms" | "url" | "login_page";
+  sender: string;
+  reply_to: string | null;
+  subject: string;
+  received_at: string;
+  headers: Record<string, string>;
+  body: string;
+  links: { label: string; url: string }[];
+  attachments: { name: string; type: string; size: string }[];
+  objective: string;
+}
+
+export interface TrainingIndicator {
+  id: string;
+  label: string;
+  severity: Severity;
+  explanation: string;
+}
+
+export interface TrainingAttemptResult {
+  id: string;
+  scenario_id: string;
+  security_score: number;
+  detection_accuracy: number;
+  indicator_score: number;
+  action_score: number;
+  indicators_found: TrainingIndicator[];
+  indicators_missed: TrainingIndicator[];
+  actions_feedback: { id: string; label: string; correct: boolean; selected: boolean; rationale: string }[];
+  decision_correct: boolean;
+  attack_technique: string;
+  explanation: string;
+  prevention: string;
+  recommended_improvement: string;
+  created_at: string;
+}
+
+export interface TrainingProgress {
+  scenarios_completed: number;
+  average_score: number;
+  detection_accuracy: number;
+  training_level: string;
+  weakest_category: string | null;
+  current_streak: number;
+  badges: string[];
+  certificate_eligible: boolean;
+  recommended_next: TrainingScenario | null;
 }
 
 export type Verdict = "malicious" | "suspicious" | "clean" | "unknown";

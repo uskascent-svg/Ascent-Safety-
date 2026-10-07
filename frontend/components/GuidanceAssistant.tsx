@@ -1,94 +1,83 @@
 "use client";
 
-import { ArrowRight, Bot, ChevronRight, Compass, LockKeyhole, ShieldCheck } from "lucide-react";
+import { Bot, LockKeyhole, Send, ShieldCheck, UserRound } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
-const TOPICS = [
-  {
-    id: "email",
-    prompt: "I need to check a suspicious email",
-    title: "Review the message safely",
-    response: "Use the Phishing Lab to submit the raw message or its text fields. The analyzer treats links as text; it does not visit them, and it does not open attachments.",
-    steps: ["Open Phishing Lab and choose raw email or message text.", "Review the risk score, indicators, and recommended action returned by the analysis.", "Threat-intelligence checks are optional and share link addresses with the providers you have configured."],
-    href: "/phishing",
-    action: "Open Phishing Lab",
-  },
-  {
-    id: "event",
-    prompt: "I need to investigate a security event",
-    title: "Start with the event record",
-    response: "The Security panel lists events and alerts stored by connected sources. Open a record to review its reported evidence; if it includes a source IP, you can request a reputation lookup from the detail view.",
-    steps: ["Open Security and narrow the list by severity, status, time range, or region.", "Select an event and review its source, timestamp, location, and description.", "Treat an intelligence lookup as provider evidence for that indicator, not as a complete incident verdict."],
-    href: "/security-panel",
-    action: "Open Security",
-  },
-  {
-    id: "telemetry",
-    prompt: "I want to connect telemetry",
-    title: "Connect a source you operate",
-    response: "Ascent Safety evaluates reports sent by integrations; it does not install endpoint agents or capture network traffic itself. Administrators can register endpoint and network sources and configure their forwarders.",
-    steps: ["Register an endpoint or sensor from its administration page.", "Copy its API key at creation time and store it in your deployment secret manager.", "Send validated events using the documented telemetry payload and confirm they appear in Security."],
-    href: "/endpoints",
-    action: "Manage sources",
-  },
-  {
-    id: "locations",
-    prompt: "How do threat locations and routes appear?",
-    title: "Coordinates must come from the source",
-    response: "A marker represents coordinates explicitly reported on an event. An animated route is drawn only when an event includes complete origin and destination coordinate pairs. The application does not infer geography from IP addresses.",
-    steps: ["Review the source event payload and confirm the location fields are correct.", "For a route, provide both latitude/longitude pairs in the telemetry event.", "Events without coordinates remain available in the event feed without a map marker."],
-    href: "/security-panel",
-    action: "Review Security",
-  },
-  {
-    id: "privacy",
-    prompt: "What happens to the email I submit?",
-    title: "Understand analysis data handling",
-    response: "The Phishing Lab states that it stores the sender, subject, and analysis results, not the message body. If you enable threat-intelligence checks, link addresses are sent to the configured third-party reputation services.",
-    steps: ["Avoid submitting content your organization is not allowed to process.", "Leave the optional intelligence checkbox off unless external lookups are approved.", "Review configured provider credentials and privacy requirements with your administrator."],
-    href: "/phishing",
-    action: "Open Phishing Lab",
-  },
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+
+type Turn = { role: "user" | "assistant"; text: string };
+type AssistantStatus = { provider: "gemini" | "rules"; model: string | null };
+type AssistantReply = AssistantStatus & { answer: string };
+
+const PROMPTS = [
+  "How do I investigate a suspicious email safely?",
+  "What should I do if an endpoint may be compromised?",
+  "How does a location get onto the threat map?",
+  "How do I review and publish a user report?",
 ];
 
 export default function GuidanceAssistant() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = TOPICS.find((topic) => topic.id === selectedId);
+  const { status: authStatus, user } = useAuth();
+  const [messages, setMessages] = useState<Turn[]>([]);
+  const [draft, setDraft] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const providerStatus = useQuery({
+    queryKey: ["guidance", "status"],
+    queryFn: () => api<AssistantStatus>("/api/guidance/status"),
+    enabled: authStatus === "authed",
+  });
+  const chat = useMutation({
+    mutationFn: (nextMessages: Turn[]) =>
+      api<AssistantReply>("/api/guidance/chat", {
+        method: "POST",
+        body: JSON.stringify({ messages: nextMessages.slice(-12) }),
+      }),
+    onSuccess: (reply) => {
+      setMessages((current) => [...current, { role: "assistant", text: reply.answer }]);
+      requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    },
+  });
 
+  const send = (value: string) => {
+    const text = value.trim();
+    if (!text || chat.isPending) return;
+    const next = [...messages, { role: "user" as const, text }];
+    setMessages(next);
+    setDraft("");
+    chat.mutate(next);
+  };
+
+  if (authStatus === "loading") return <div className="mx-auto max-w-5xl px-4 py-12 text-sm text-slate-400">Loading assistant…</div>;
+  if (authStatus === "anon") return <div className="mx-auto max-w-3xl px-4 py-16"><div className="glass p-8 text-center"><Bot className="mx-auto h-7 w-7 text-accent" aria-hidden="true" /><h1 className="mt-4 text-xl font-semibold text-white">Sign in for personalized guidance</h1><p className="mt-2 text-sm text-slate-400">Answers adapt to your workspace role. The assistant does not inspect private incident records.</p><Link href="/login" className="btn-primary mt-5">Sign in</Link></div></div>;
+
+  const usingGemini = providerStatus.data?.provider === "gemini";
   return (
-    <div className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 lg:px-9 lg:py-10">
-      <div className="mb-8 max-w-3xl">
-        <p className="eyebrow">Product guidance</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Personal guidance assistant</h1>
-        <p className="mt-3 text-sm leading-relaxed text-slate-400">Choose a topic to get help using Ascent Safety and its documented workflows.</p>
+    <div className="mx-auto max-w-[1100px] px-4 py-8 sm:px-6 lg:py-10">
+      <div className="mb-6 max-w-3xl">
+        <p className="eyebrow">Role-aware product guidance</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Personal guidance assistant</h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-400">Ask about phishing response, incident triage, reports, telemetry, and the Ascent Safety workspace.</p>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
-        <section className="glass p-5 sm:p-6" aria-labelledby="guidance-topics-heading">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="grid h-9 w-9 place-items-center rounded-lg border border-accent/20 bg-accent/[0.06] text-accent-strong"><Compass className="h-4 w-4" aria-hidden="true" /></span>
-            <div><h2 id="guidance-topics-heading" className="text-sm font-medium text-slate-100">What can I help with?</h2><p className="mt-1 text-[10px] text-slate-500">Select a workflow</p></div>
-          </div>
-          <div className="space-y-2">{TOPICS.map((topic) => <button key={topic.id} type="button" aria-pressed={selectedId === topic.id} onClick={() => setSelectedId(topic.id)} className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3.5 py-3 text-left text-xs transition ${selectedId === topic.id ? "border-accent/30 bg-accent/[0.07] text-white" : "border-white/[0.06] bg-white/[0.015] text-slate-400 hover:border-white/[0.12] hover:text-slate-200"}`}><span>{topic.prompt}</span><ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden="true" /></button>)}</div>
-          <div className="mt-5 flex gap-2 rounded-lg border border-white/[0.06] bg-black/15 p-3 text-[10px] leading-relaxed text-slate-500"><LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-600" aria-hidden="true" /><p>Guidance is curated from the product workflows. It does not send your questions to an AI service or inspect your private event data.</p></div>
-        </section>
+      <section className="glass overflow-hidden" aria-label="Guidance chat">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.07] px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl border border-accent/20 bg-accent/[0.06] text-accent-strong"><Bot className="h-5 w-5" aria-hidden="true" /></span><div><h2 className="text-sm font-semibold text-white">Ascent guide</h2><p className="mt-0.5 text-xs text-slate-500">Guidance for {user?.roles.includes("ADMINISTRATOR") ? "administrators" : user?.roles.includes("SECURITY_ANALYST") ? "security analysts" : "workspace users"}</p></div></div>
+          <span className={`rounded-full border px-3 py-1.5 text-[11px] ${usingGemini ? "border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-200" : "border-amber-300/15 bg-amber-300/[0.04] text-amber-100"}`}><ShieldCheck className="mr-1.5 inline h-3.5 w-3.5" aria-hidden="true" />{usingGemini ? `Gemini · ${providerStatus.data?.model}` : "Rules guidance · Gemini key not configured"}</span>
+        </header>
 
-        <section className="glass min-h-[420px] p-5 sm:p-6" aria-live="polite" aria-label="Guidance answer">
-          <div className="flex items-center justify-between border-b border-white/[0.06] pb-4">
-            <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 bg-white/[0.025] text-slate-300"><Bot className="h-4 w-4" aria-hidden="true" /></span><div><p className="text-sm font-medium text-slate-100">Ascent guide</p><p className="mt-1 text-[10px] text-slate-600">Documented product workflows</p></div></div>
-            <span className="rounded-full border border-emerald-500/15 bg-emerald-500/[0.05] px-2.5 py-1 text-[9px] uppercase tracking-[0.12em] text-emerald-300"><ShieldCheck className="mr-1 inline h-3 w-3" aria-hidden="true" />Privacy-first</span>
-          </div>
-          {!selected ? (
-            <div className="grid min-h-[310px] place-items-center text-center"><div className="max-w-sm"><p className="text-sm text-slate-300">Select a workflow to get started.</p><p className="mt-2 text-xs leading-relaxed text-slate-500">The guide explains existing tools and data handling. It does not make incident decisions for you.</p></div></div>
-          ) : (
-            <div className="pt-5">
-              <div className="ml-auto max-w-[90%] rounded-xl rounded-br-sm border border-accent/15 bg-accent/[0.05] px-4 py-3 text-xs leading-relaxed text-slate-200">{selected.prompt}</div>
-              <div className="mt-5 flex gap-3"><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full border border-slate-700 bg-slate-900 text-accent-strong"><Bot className="h-3.5 w-3.5" aria-hidden="true" /></span><div className="min-w-0 flex-1"><h2 className="text-sm font-semibold text-white">{selected.title}</h2><p className="mt-2 text-xs leading-relaxed text-slate-400">{selected.response}</p><ol className="mt-4 space-y-2.5">{selected.steps.map((step, index) => <li key={step} className="flex gap-2.5 text-xs leading-relaxed text-slate-300"><span className="font-mono text-[10px] text-accent-strong">0{index + 1}</span><span>{step}</span></li>)}</ol><Link href={selected.href} className="btn-secondary mt-5 !px-3 !py-2 text-xs">{selected.action}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" /></Link></div></div>
-            </div>
-          )}
-        </section>
-      </div>
+        <div className="min-h-[360px] space-y-4 p-4 sm:p-6" aria-live="polite" aria-relevant="additions text">
+          {messages.length === 0 ? <div className="mx-auto max-w-2xl py-8 text-center"><Bot className="mx-auto h-8 w-8 text-slate-500" aria-hidden="true" /><h3 className="mt-4 text-base font-medium text-slate-200">How can I help?</h3><p className="mt-2 text-sm text-slate-500">The assistant gives defensive guidance based on your verified workspace role. It does not read private records.</p><div className="mt-6 grid gap-2 sm:grid-cols-2">{PROMPTS.map((prompt) => <button key={prompt} type="button" onClick={() => send(prompt)} className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-3 text-left text-sm text-slate-300 transition hover:border-accent/25 hover:bg-accent/[0.04]">{prompt}</button>)}</div></div> : messages.map((message, index) => <article key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}><div className={`flex max-w-[88%] gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}><span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full border ${message.role === "assistant" ? "border-accent/15 bg-accent/[0.04] text-accent-strong" : "border-white/10 bg-white/[0.03] text-slate-300"}`}>{message.role === "assistant" ? <Bot className="h-4 w-4" aria-hidden="true" /> : <UserRound className="h-4 w-4" aria-hidden="true" />}</span><p className={`whitespace-pre-wrap rounded-xl px-4 py-3 text-sm leading-6 ${message.role === "assistant" ? "border border-white/[0.07] bg-white/[0.025] text-slate-300" : "border border-accent/15 bg-accent/[0.05] text-slate-200"}`}>{message.text}</p></div></article>)}
+          {chat.isPending && <p className="ml-11 text-sm text-slate-500" role="status">Preparing guidance…</p>}
+          {chat.isError && <p role="alert" className="ml-11 text-sm text-red-300">The assistant could not respond. Your previous messages are still here; please retry.</p>}
+          <div ref={bottomRef} />
+        </div>
+
+        {messages.length > 0 && <div className="flex flex-wrap gap-2 border-t border-white/[0.05] px-4 py-3 sm:px-6">{PROMPTS.slice(0, 3).map((prompt) => <button key={prompt} type="button" disabled={chat.isPending} onClick={() => send(prompt)} className="rounded-full border border-white/[0.07] px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">{prompt}</button>)}</div>}
+        <form onSubmit={(event) => { event.preventDefault(); send(draft); }} className="border-t border-white/[0.07] bg-black/10 p-4 sm:px-6"><label htmlFor="guidance-message" className="sr-only">Ask the guidance assistant</label><div className="flex items-end gap-2"><textarea id="guidance-message" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={1500} rows={2} className="field min-h-12 flex-1 resize-y !py-3 text-sm" placeholder="Ask a security or product guidance question…" /><button type="submit" disabled={!draft.trim() || chat.isPending} className="btn-primary h-11 shrink-0 !px-4" aria-label="Send message"><Send className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Send</span></button></div><p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-600"><LockKeyhole className="h-3 w-3" aria-hidden="true" />Do not include passwords, OTPs, tokens, or confidential incident evidence.</p></form>
+      </section>
     </div>
   );
 }

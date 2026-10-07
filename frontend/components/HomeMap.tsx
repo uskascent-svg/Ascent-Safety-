@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import AlertsPanel from "@/components/AlertsPanel";
+import CyberAlertsPanel, { ActiveCyberAlertBanner } from "@/components/CyberAlertsPanel";
 import { GlobalThreatPanel, RegionsPanel, SystemStatusPanel, ThreatCategoriesPanel, ThreatTimelinePanel } from "@/components/AnalyticsPanels";
 import EventDetail from "@/components/EventDetail";
 import EventFeed from "@/components/EventFeed";
@@ -48,6 +49,7 @@ function LiveDashboard() {
 
       {isAdmin && <section aria-labelledby="connect-telemetry-heading" className="glass mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div><h3 id="connect-telemetry-heading" className="text-sm font-medium text-white">Connect telemetry</h3><p className="mt-1 text-xs text-slate-500">Analyze reports from security sources you operate.</p></div><div className="flex flex-wrap gap-2"><Link href="/endpoints" className="btn-secondary !px-3 !py-2 text-xs">Endpoints</Link><Link href="/sensors" className="btn-secondary !px-3 !py-2 text-xs">Network sensors</Link></div></section>}
 
+
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(280px,0.75fr)]">
         <KpiCards filters={defaultFilters} />
         <GlobalThreatPanel />
@@ -64,6 +66,7 @@ function LiveDashboard() {
         <EventFeed filters={defaultFilters} page={page} onPage={setPage} selectedId={selectedId} onSelect={setSelectedId} className="max-h-[560px] lg:min-h-[430px]" />
         <AlertsPanel onSelect={setSelectedId} />
       </div>
+      <div className="mt-4"><CyberAlertsPanel /></div>
       <p className="mt-3 text-[11px] text-slate-600">Threat locations and routes are visualized in the Earth above. No coordinates are inferred for unlocated events.</p>
       {selectedId && <EventDetail id={selectedId} onClose={() => setSelectedId(null)} />}
     </section>
@@ -73,5 +76,5 @@ function LiveDashboard() {
 export default function HomeMap() {
   const { status, canViewPanel } = useAuth();
   if (status === "loading") return <div id="workspace-panels" className="min-h-64" />;
-  return canViewPanel ? <LiveDashboard /> : <WorkspaceModules />;
+  return <><ActiveCyberAlertBanner />{canViewPanel ? <LiveDashboard /> : <WorkspaceModules />}</>;
 }

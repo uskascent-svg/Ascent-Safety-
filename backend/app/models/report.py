@@ -40,7 +40,7 @@ def _report_code() -> str:
 
 
 class SecurityReport(Base):
-    """Private user-submitted report. It is not a public intelligence event."""
+    """Private report with an optional separately consented, sanitized map event."""
 
     __tablename__ = "security_reports"
     __table_args__ = (
@@ -54,9 +54,10 @@ class SecurityReport(Base):
     report_code: Mapped[str] = mapped_column(
         String(16), unique=True, index=True, default=_report_code
     )
-    reporter_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    reporter_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    anonymous_token_hash: Mapped[str | None] = mapped_column(String(64))
     assigned_to_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
@@ -76,6 +77,9 @@ class SecurityReport(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     promoted_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("security_events.id", ondelete="SET NULL"), unique=True, index=True
+    )
+    published_event_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("security_events.id", ondelete="SET NULL"), unique=True, index=True
     )
 

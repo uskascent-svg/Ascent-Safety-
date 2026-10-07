@@ -9,3 +9,4 @@ node_modules/
 frontend/tsconfig.tsbuildinfo
 ml/datasets/*
 !ml/datasets/.gitkeep
+frontend/public/maplibre-gl-worker.mjs

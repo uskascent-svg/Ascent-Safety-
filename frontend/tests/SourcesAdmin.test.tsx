@@ -12,6 +12,8 @@ function renderAdmin(isAdmin = true) {
     user: null,
     canViewPanel: true,
     isAdmin,
+    isAnalyst: !isAdmin,
+    isAuthenticated: true,
     login: vi.fn(),
     register: vi.fn(),
     logout: vi.fn(),

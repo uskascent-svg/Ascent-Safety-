@@ -17,6 +17,8 @@ class ReportCreate(BaseModel):
     reported_at: datetime
     severity: Severity
     additional_notes: str | None = Field(default=None, max_length=3000)
+    anonymous: bool = False
+    publish_to_map: bool = False
 
     @field_validator("title", "description", "source_location", "additional_notes")
     @classmethod
@@ -74,13 +76,24 @@ class ReportNoteOut(BaseModel):
 
 
 class AdminReportOut(ReportOut):
-    reporter_id: uuid.UUID
+    reporter_id: uuid.UUID | None
     reporter_name: str
     reporter_email: str
     assigned_to_id: uuid.UUID | None
     assigned_to_name: str | None
     internal_notes: list[ReportNoteOut]
     promoted_event_id: uuid.UUID | None
+    published_event_id: uuid.UUID | None
+
+
+class ReportSubmissionOut(ReportOut):
+    tracking_token: str | None = None
+    location_status: str
+    published_event_id: uuid.UUID | None = None
+
+
+class AnonymousReportTrack(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
 
 
 class ReportPromotion(BaseModel):
@@ -113,6 +126,21 @@ class ReportPromotion(BaseModel):
         if round(self.latitude, 2) != self.latitude or round(self.longitude, 2) != self.longitude:
             raise ValueError("Use coarse coordinates rounded to at most two decimal places")
         return self
+
+
+class GeocodeOption(BaseModel):
+    label: str
+    locality: str
+    region: str | None
+    country: str | None
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class GeocodeOptionPage(BaseModel):
+    items: list[GeocodeOption]
+    cached: bool
+    attribution: str = "© OpenStreetMap contributors"
 
 
 class ReportPage(BaseModel):

@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const { useEvents } = vi.hoisted(() => ({ useEvents: vi.fn() }));
 
@@ -8,15 +9,25 @@ vi.mock("@/hooks/useSecurityData", () => ({ PAGE_SIZE: 25, useEvents }));
 
 import CaseStudies from "@/components/CaseStudies";
 import GuidanceAssistant from "@/components/GuidanceAssistant";
+import * as auth from "@/lib/auth";
+
+function renderGuidance() {
+  vi.spyOn(auth, "useAuth").mockReturnValue({
+    status: "authed", user: { roles: ["SECURITY_ANALYST"] } as never, canViewPanel: true,
+    isAdmin: false, isAnalyst: true, isAuthenticated: true, login: vi.fn(), register: vi.fn(), logout: vi.fn(),
+  });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}><GuidanceAssistant /></QueryClientProvider>);
+}
 
 describe("guidance assistant", () => {
-  it("offers documented workflows without claiming to inspect user data", () => {
-    render(<GuidanceAssistant />);
+  it("shows role-aware guidance prompts and keeps private-record access out of scope", () => {
+    renderGuidance();
 
-    expect(screen.getByText(/does not send your questions to an AI service/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /suspicious email/i }));
-    expect(screen.getByText("Review the message safely")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /open phishing lab/i })).toHaveAttribute("href", "/phishing");
+    expect(screen.getByText("Personal guidance assistant")).toBeInTheDocument();
+    expect(screen.getByText("Guidance for security analysts")).toBeInTheDocument();
+    expect(screen.getByText(/does not read private records/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /investigate a suspicious email safely/i })).toBeInTheDocument();
   });
 });
 

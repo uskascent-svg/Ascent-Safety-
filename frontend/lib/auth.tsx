@@ -13,6 +13,8 @@ interface AuthValue {
   user: User | null;
   canViewPanel: boolean;
   isAdmin: boolean;
+  isAnalyst: boolean;
+  isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
   register: (email: string, password: string, fullName: string) => Promise<User>;
   logout: () => Promise<void>;
@@ -86,6 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ...state,
       canViewPanel: !!state.user?.roles.some((r) => PANEL_ROLES.includes(r)),
       isAdmin: !!state.user?.roles.includes("ADMINISTRATOR"),
+      isAnalyst: !!state.user?.roles.includes("SECURITY_ANALYST"),
+      isAuthenticated: state.status === "authed",
       login,
       register,
       logout,
