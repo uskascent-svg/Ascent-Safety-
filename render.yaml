@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/health/ready
-    startCommand: sh /srv/render-start.sh
+    dockerCommand: sh /srv/render-start.sh
     envVars:
       - key: PORT
         value: 8000
