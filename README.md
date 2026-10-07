@@ -108,13 +108,20 @@ accounts with the same deployment-shell command when appropriate.
 
 ### Render API and database
 
-The repository includes a Render Blueprint at [`render.yaml`](render.yaml). Deploy it from the
-Render dashboard using **New → Blueprint**, select this repository, review the displayed service
-and database plan prices, and enter the Google AI key into the `GOOGLE_API_KEY` secret prompt. The
+The repository includes a Render Blueprint at [`render.yaml`](render.yaml). It uses Render's free
+web and Postgres plans so it can deploy without a payment method. Deploy it from the
+Render dashboard using **New → Blueprint**, select this repository, and enter the Google AI key into
+the `GOOGLE_API_KEY` secret prompt. The
 key is a Render-only secret: do not add it to GitHub, Vercel, a browser environment variable, or a
 local committed file. The Blueprint creates a private PostgreSQL database, generates a JWT secret,
-runs Alembic migrations before deploy, and configures readiness checks. Keep a single API instance
+runs Alembic migrations at API startup, and configures readiness checks. Keep a single API instance
 because the live event stream currently uses process-local state.
+
+Free hosting is suitable for a preview only: the API spins down after inactivity and the free Render
+Postgres database is limited to 1 GB, has no backups, and expires after 30 days. Do not use this tier
+for real security incident records or other durable production data. Render says that if free-tier
+usage exceeds included monthly amounts and there is no payment method, it suspends service/builds
+rather than charging a card.
 
 After Render reports the API healthy, set the Vercel **Production** environment variable
 `API_INTERNAL_URL` to the Render service's HTTPS origin (for example,

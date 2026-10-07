@@ -30,9 +30,11 @@ continued without needing the original chat.
   processes a bounded recent transcript, uses a short output cap and one request per turn, and falls
   back to deterministic rules. Its API key is `GOOGLE_API_KEY` in the backend secret store only.
 - Render uses a private managed PostgreSQL database and one API instance so the existing process-local
-  SSE broker and rate limiter keep their intended semantics. The Render Blueprint prompts for the
-  provider key; the Vercel frontend forwards same-origin `/api` routes through a server-only
-  `API_INTERNAL_URL` setting.
+  SSE broker and rate limiter keep their intended semantics. The current Render Blueprint targets the
+  free plans to avoid a payment method, which is preview-only (database expiry after 30 days, no
+  backups, and the web service spins down). Migrations run at single-instance API startup because
+  Render's pre-deploy command is paid-only. The Blueprint prompts for the provider key; the Vercel
+  frontend forwards same-origin `/api` routes through a server-only `API_INTERNAL_URL` setting.
 - Docker Compose is the reproducible single-host deployment path: database health check, one-shot
   migration, API readiness, then frontend. Production TLS and public ingress are expected to be
   provided by a reverse proxy or hosting platform.

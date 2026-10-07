@@ -3,11 +3,11 @@ services:
     name: ascent-safety-api
     runtime: docker
     region: singapore
-    plan: starter
+    plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/health/ready
-    preDeployCommand: alembic upgrade head
+    startCommand: sh /srv/render-start.sh
     envVars:
       - key: PORT
         value: 8000
@@ -29,6 +29,6 @@ services:
 databases:
   - name: ascent-safety-db
     region: singapore
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"
     ipAllowList: []
