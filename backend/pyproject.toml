@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = [
+    "B008",   # FastAPI Depends()/Query() in defaults is idiomatic
+    "UP042",  # str+Enum is kept for Pydantic/SQLAlchemy compatibility
+    "S105",   # "bearer" token_type is a protocol constant, not a secret
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "E402", "I001", "F811"]
+"alembic/versions/*" = ["E501", "I001", "UP"]
+"app/detection/phishing/rules.py" = ["E501"]  # human-readable indicator descriptions
+"app/services/threat_intel/*.py" = ["E501"]  # descriptions / provider URLs
+"app/detection/malware/detectors.py" = ["E501"]  # descriptions and detection regexes
+"app/detection/network/detectors.py" = ["E501"]  # descriptions
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+pythonpath = [".", ".."]

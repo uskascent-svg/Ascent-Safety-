@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.pytest_cache/
+.ruff_cache/
+*.joblib
+frontend/tsconfig.tsbuildinfo
+ml/datasets/*
+!ml/datasets/.gitkeep

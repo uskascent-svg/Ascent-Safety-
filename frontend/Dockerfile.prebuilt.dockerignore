@@ -1,0 +1,10 @@
+node_modules
+.next/*
+!.next/standalone/
+!.next/static/
+!.next/standalone/**
+!.next/static/**
+.git
+tests
+coverage
+npm-debug.log*
