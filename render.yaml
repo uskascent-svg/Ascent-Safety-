@@ -20,11 +20,27 @@ services:
       - key: COOKIE_SECURE
         value: "true"
       - key: CORS_ORIGINS
-        value: '["https://ascent-safety.vercel.app"]'
+        value: '["https://ascent-safety-web.onrender.com", "https://ascent-safety.vercel.app"]'
       - key: GOOGLE_API_KEY
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.5-flash-lite
+
+  - type: web
+    name: ascent-safety-web
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: API_INTERNAL_URL
+        value: https://ascent-safety-api.onrender.com
+      - key: NEXT_PUBLIC_MAP_STYLE_URL
+        value: https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json
 
 databases:
   - name: ascent-safety-db
