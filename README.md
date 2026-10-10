@@ -4,6 +4,8 @@ Ascent Safety is a cybersecurity monitoring application for event triage, phishi
 threat-intelligence lookups, and endpoint/network telemetry findings. It stores operational data in
 PostgreSQL and exposes it through a FastAPI API consumed by a Next.js interface.
 
+**Live application:** [ascent-safety-web.onrender.com](https://ascent-safety-web.onrender.com)
+
 This application analyzes reports from integrations you connect. It does not capture network
 traffic, install endpoint agents, block activity, or guarantee threat detection. Review
 [endpoint telemetry](docs/endpoint-telemetry.md) and [network telemetry](docs/network-telemetry.md)
@@ -30,10 +32,11 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Open <http://localhost:3000>. The API health checks are available at
-<http://localhost:8000/api/health> and <http://localhost:8000/api/health/ready>. Both host ports are
-bound to loopback by default. The browser calls `/api` on the web origin; Next.js forwards those
-requests to the API service, which also keeps refresh cookies same-origin.
+For local development, open the web app on port 3000; the API health checks are on port 8000 at
+`/api/health` and `/api/health/ready`. Both host ports are bound to loopback by default. The browser
+calls `/api` on the web origin; Next.js forwards those requests to the API service, which also keeps
+refresh cookies same-origin. For the deployed app, use the
+[Render site](https://ascent-safety-web.onrender.com).
 
 The home page includes an interactive Three.js Earth. Security analysts and administrators see
 markers and routes from authorized event records; route arcs require explicit origin and destination
@@ -111,20 +114,17 @@ secrets.
 
 ### First administrator
 
-1. Create an account at <http://localhost:3000/login>.
-2. Promote that account from the deployment shell:
-
-   ```sh
-   docker compose exec api python -m app.bootstrap_admin admin@example.com
-   ```
-
-   Replace the address with the account you created. The command is idempotent and adds the
-   administrator role; it does not print or change the user's password.
-3. Sign in again so the new role is reflected in the access token.
+1. Create an account at <https://ascent-safety-web.onrender.com/login>.
+2. In the Render Dashboard, open `ascent-safety-api` → **Environment** and set
+   `BOOTSTRAP_ADMIN_EMAIL` to the exact address of that account. Save and restart or redeploy the API
+   service. Startup grants the administrator role without changing the password. Remove
+   `BOOTSTRAP_ADMIN_EMAIL` after successful promotion so it is not reapplied on later restarts.
+3. Sign in again at the [Render login page](https://ascent-safety-web.onrender.com/login) so the new
+   role is reflected in the access token.
 
 Self-registration grants standard user access only. Administrators can register endpoints and
 network sensors. Self-registration can never grant elevated access; promote additional trusted
-accounts with the same deployment-shell command when appropriate.
+accounts through the same Render environment setting when appropriate.
 
 ## Configure a production deployment
 

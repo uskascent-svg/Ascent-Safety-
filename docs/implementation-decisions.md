@@ -144,8 +144,9 @@ continued without needing the original chat.
   backend tests, Ruff, Compose configuration validation, and a same-origin API rewrite smoke check.
 - 2026-10-07: Started Docker Desktop and launched the Compose application. PostgreSQL, API, and web
   containers are healthy; migrations completed; `/`, `/login`, and the frontend-proxied API readiness
-  endpoint return HTTP 200. The application is running locally at http://localhost:3000. Visual
-  browser review remains unverified because desktop browser access was denied by policy.
+  endpoint return HTTP 200. At that checkpoint, the application was running in the local Compose
+  environment. Visual browser review remains unverified because desktop browser access was denied by
+  policy. The public application is at https://ascent-safety-web.onrender.com.
 - 2026-10-07: Fixed post-login navigation so standard users land on the home page and analyst/admin
   users land on the analyst-only Security Panel. The prior redirect sent every role to the panel,
   which made a successful standard-user login appear broken. Invalid-credential feedback now points
