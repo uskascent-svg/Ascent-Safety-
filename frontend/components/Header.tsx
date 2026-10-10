@@ -35,6 +35,7 @@ const CORE_NAV = [
   { href: "/legal-compliance", label: "Legal & compliance", icon: ScrollText },
   { href: "/guidance", label: "Guidance assistant", icon: Compass },
   { href: "/phishing", label: "Phishing lab", icon: Mail },
+  { href: "/threat-analyzer", label: "Threat analyzer", icon: Shield },
 ];
 
 function SystemStatus() {
@@ -75,7 +76,7 @@ export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const { status, user, isAdmin, canViewPanel, logout } = useAuth();
+  const { status, user, isAdmin, canViewPanel, canAccessThreatNetwork, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const alertSummary = useQuery({
@@ -102,6 +103,7 @@ export default function Header() {
     ...CORE_NAV,
     ...(canViewPanel ? [{ href: "/endpoints", label: "Defense center", icon: LockKeyhole }] : []),
     ...(isAdmin ? [{ href: "/sensors", label: "Network sensors", icon: Network }] : []),
+    ...(canAccessThreatNetwork ? [{ href: "/threat-network", label: "Threat detection network", icon: Activity }] : []),
   ];
 
   const navLink = (href: string, label: string, Icon: (typeof CORE_NAV)[number]["icon"]) => {

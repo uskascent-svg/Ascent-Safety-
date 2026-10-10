@@ -58,6 +58,51 @@ report metadata and do not create map events; only separately ingested, coordina
 on the globe/map. The Legal & Compliance center contains version-controlled awareness references linked
 to official sources; it is not legal advice or an automated compliance assessment.
 
+Authenticated users can also open **Threat Analyzer** for static message, URL, and supported file
+triage. Submitted URLs are inspected as strings and are never fetched. Analysis records contain a
+content hash and derived findings, not uploaded bytes or extracted text. The parser runs in a separate
+isolated Python process, with upload-size, parse-time, concurrency, and extracted-text limits; supported
+formats and signatures are enforced by the parser. Analysis history, detail, deletion, and feedback
+are owner-scoped by the API. Extraction failures and unsupported content remain unknown/partial rather
+than being reported as safe. The administrator-only **Threat Detection Network** view aggregates
+persisted analyses; the dashboard explicitly reports detection quality as unmeasured until an
+independent labeled evaluation exists. It does not claim queue, sensor, or worker telemetry.
+
+The API supports three narrowly scoped roles in addition to the existing administrator role:
+`THREAT_MONITOR` can read threat-network metrics and model state, `THREAT_DATA_REVIEWER` can inspect
+consented feedback samples and approve/reject labels, and `THREAT_MODEL_OPERATOR` can queue training
+and reject/promote/rollback artifacts. Existing `ADMINISTRATOR` accounts retain access to all three
+areas. All checks use role records from the database on each request. Grant these roles only through
+the existing trusted database/deployment administration process; never trust client-supplied roles.
+
+After applying migrations, operators can grant or revoke a scoped role from the deployment shell:
+
+```sh
+docker compose exec api python -m app.bootstrap_threat_role reviewer@example.com THREAT_DATA_REVIEWER
+docker compose exec api python -m app.bootstrap_threat_role operator@example.com THREAT_MODEL_OPERATOR
+docker compose exec api python -m app.bootstrap_threat_role reviewer@example.com THREAT_DATA_REVIEWER --revoke
+```
+
+The command accepts only active existing users and the three scoped threat roles. It does not grant
+administrator access.
+
+Authorized data reviewers can inspect a training sample only after explicit user opt-in. Samples are
+encrypted at rest with `THREAT_ANALYSIS_DATA_KEY` and sample disclosure is audited. Only reviewed,
+opted-in benign/malicious samples can be considered.
+Training stays unavailable until operators configure that Fernet key, a secret
+`THREAT_ANALYSIS_MODEL_HMAC_KEY` (at least 32 characters), `THREAT_ANALYSIS_MODEL_DIR` on persistent
+storage, and `THREAT_ANALYSIS_INDEPENDENT_TEST_SET` as a separate UTF-8 JSONL dataset with `text` and
+`label` (`benign` or `malicious`) fields. The evaluation set needs 20 unique examples and at least 10
+per class; training additionally requires three examples per class. Thresholds are fixed in code,
+artifacts are SHA-256/HMAC verified before load, and promotion re-evaluates against the configured
+test set and applies a non-regression gate versus the current active model. Treat the test set as
+controlled, access-restricted evaluation data: it must not overlap with user training samples. Back up
+the model directory and its signing key together with database metadata. Rotating the HMAC key
+requires a controlled re-signing/migration procedure; otherwise model artifacts fail closed to the
+rules-based analyzer. The trainer currently runs as a bounded FastAPI background task, not a durable
+external job queue; a process restart marks queued/running jobs failed and operators may submit a new
+job. Do not enable this workflow until its deployment storage and evaluation data are reviewed.
+
 The initialization script creates fresh local JWT and PostgreSQL secrets in `.env`, refuses to
 overwrite an existing `.env`, and never prints the secret values. `.env` is ignored by Git. For a
 production deployment, use your hosting provider's secret manager instead of copying these local
@@ -100,34 +145,41 @@ accounts with the same deployment-shell command when appropriate.
 7. To load a locally trained phishing model, place the reviewed artifact in `ml/models`, set
    `ML_MODEL_PATH=/models/phishing_tfidf_lr.joblib`, and rebuild/restart the API. The Compose mount is
    read-only; never load an artifact from an untrusted source.
-8. Put TLS and public ingress in front of the web app. Forward `/api` to the web app so the Next.js
+8. To enable threat-analysis feedback training, first configure the four `THREAT_ANALYSIS_*` values
+   documented above, provision a persistent private artifact directory, and validate the independent
+   JSONL set and recovery procedure. Keep the encryption/signing keys in the host secret manager. The
+   optional sample-extraction worker uses installed document-parser packages; deployments must keep
+   the worker and API dependency versions aligned. On Windows, process memory/CPU hard limits are not
+   equivalent to POSIX `rlimit`; production uploads should run on the documented Linux container
+   deployment and be subjected to archive/resource-exhaustion testing before enabling uploads.
+9. Put TLS and public ingress in front of the web app. Forward `/api` to the web app so the Next.js
    rewrite can route API calls, SSE, and telemetry ingestion to FastAPI. The ingress proxy must
    replace `X-Forwarded-For` with the actual client address; never trust a client-supplied value.
    Configure proxy timeouts for long-lived SSE connections and rate limits for public ingestion
    routes.
 
-### Render API and database
+### Render deployment (API, database, and optional web service)
 
 The repository includes a Render Blueprint at [`render.yaml`](render.yaml). It uses Render's free
 web and Postgres plans so it can deploy without a payment method. Deploy it from the
 Render dashboard using **New → Blueprint**, select this repository, and enter the Google AI key into
-the `GOOGLE_API_KEY` secret prompt. The
+the `GOOGLE_API_KEY` secret prompt (or leave blank to use the built-in rules fallback). The
 key is a Render-only secret: do not add it to GitHub, Vercel, a browser environment variable, or a
-local committed file. The Blueprint creates a private PostgreSQL database, generates a JWT secret,
-runs Alembic migrations at API startup, and configures readiness checks. Keep a single API instance
-because the live event stream currently uses process-local state.
+local committed file.
 
-Free hosting is suitable for a preview only: the API spins down after inactivity and the free Render
-Postgres database is limited to 1 GB, has no backups, and expires after 30 days. Do not use this tier
-for real security incident records or other durable production data. Render says that if free-tier
-usage exceeds included monthly amounts and there is no payment method, it suspends service/builds
-rather than charging a card.
+The Blueprint provisions:
+- **`ascent-safety-db`**: A managed PostgreSQL database running migrations automatically at API startup.
+- **`ascent-safety-api`**: The FastAPI backend with health checks, generated JWT secret, and secure cookies.
+- **`ascent-safety-web`**: The Next.js frontend with dynamic `/api` reverse proxying to the backend.
 
-After Render reports the API healthy, set the Vercel **Production** environment variable
-`API_INTERNAL_URL` to the Render service's HTTPS origin (for example,
-`https://ascent-safety-api.onrender.com`) and redeploy the Vercel frontend. The frontend's same-origin
-`/api` rewrite then forwards authenticated requests to the backend. Verify `/api/health/ready`, sign
-in, and check `/api/guidance/status`; never paste the Google key into the frontend or browser.
+#### Promoting the first administrator on Render
+Because Render free web services do not include an interactive web shell:
+1. Register a new user at `https://<your-web-service>.onrender.com/login`.
+2. In the Render Dashboard under **`ascent-safety-api` → Environment**, add `BOOTSTRAP_ADMIN_EMAIL` set to that user's email address and save.
+3. On the next restart/deploy, the API will grant the `ADMINISTRATOR` role to that account.
+
+If you choose to host the frontend on **Vercel** instead of Render:
+Set the Vercel **Production** environment variable `API_INTERNAL_URL` to the Render service's HTTPS origin (e.g. `https://ascent-safety-api.onrender.com`) and redeploy. Verify `/api/health/ready`, sign in, and check `/api/guidance/status`; never paste the Google key into the frontend or browser.
 
 The guidance agent uses Google ADK with one bounded Gemini Flash-Lite call per user request, no
 tools, no browsing, no record access, a short conversation window, and a rules-based fallback when
@@ -155,6 +207,18 @@ docker compose exec -T db pg_dump -U ascent -d ascent -Fc > ascent-backup.dump
 
 Restore only after stopping application writers and confirming the target database. Keep the backup
 outside the repository and test restoration on a separate database before relying on it.
+
+The threat-analysis integration adds Alembic revisions `0013` and `0014`. Revision `0013` creates
+analysis, feedback, training-job, and model-version tables; `0014` adds the scoped monitoring,
+reviewer, and model-operator roles. The normal deployment startup migrates from `0012` to `0014`; for
+a manual rollout, first take and verify a PostgreSQL backup, then run
+`docker compose run --rm migrate alembic upgrade head` (or `cd backend; alembic upgrade head` in the
+configured virtual environment). Deploy the API and web images after the migration succeeds. To roll
+back application code, stop API writers and restore the pre-upgrade database backup; the downgrade
+removes the new `threat_analyses` table and therefore deletes analyses created after migration.
+Downgrading `0014` removes scoped-role records and their assignments. Never
+run a destructive downgrade against the only production copy. Existing records and migration history
+are otherwise unchanged.
 
 ## Development and tests
 

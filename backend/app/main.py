@@ -23,13 +23,14 @@ from app.api import (
     reports,
     security_events,
     sensors,
+    threat_analysis,
     threat_intel,
     users,
 )
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.database.session import SessionLocal, engine
-from app.models import Role, RoleName
+from app.models import Role, RoleName, ThreatTrainingJob
 
 log = logging.getLogger("ascent")
 
@@ -42,6 +43,16 @@ async def lifespan(_: FastAPI):
         for name in RoleName:
             if name.value not in existing:
                 db.add(Role(name=name.value))
+        interrupted = (
+            db.query(ThreatTrainingJob)
+            .filter(ThreatTrainingJob.status.in_(("queued", "running")))
+            .all()
+        )
+        for job in interrupted:
+            job.status = "failed"
+            job.message = (
+                "Training process stopped before completion; queue a new job after review."
+            )
         db.commit()
     yield
 
@@ -99,6 +110,7 @@ app.include_router(users.router)
 app.include_router(security_events.router)
 app.include_router(dashboard.router)
 app.include_router(phishing.router)
+app.include_router(threat_analysis.router)
 app.include_router(guidance.router)
 app.include_router(phishing_training.router)
 app.include_router(cyber_alerts.router)

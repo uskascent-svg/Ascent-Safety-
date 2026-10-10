@@ -14,6 +14,9 @@ interface AuthValue {
   canViewPanel: boolean;
   isAdmin: boolean;
   isAnalyst: boolean;
+  canAccessThreatNetwork?: boolean;
+  canReviewThreatData?: boolean;
+  canOperateThreatModels?: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
   register: (email: string, password: string, fullName: string) => Promise<User>;
@@ -89,6 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       canViewPanel: !!state.user?.roles.some((r) => PANEL_ROLES.includes(r)),
       isAdmin: !!state.user?.roles.includes("ADMINISTRATOR"),
       isAnalyst: !!state.user?.roles.includes("SECURITY_ANALYST"),
+      canAccessThreatNetwork: !!state.user?.roles.some((role) =>
+        ["ADMINISTRATOR", "THREAT_MONITOR", "THREAT_DATA_REVIEWER", "THREAT_MODEL_OPERATOR"].includes(role),
+      ),
+      canReviewThreatData: !!state.user?.roles.some((role) =>
+        ["ADMINISTRATOR", "THREAT_DATA_REVIEWER"].includes(role),
+      ),
+      canOperateThreatModels: !!state.user?.roles.some((role) =>
+        ["ADMINISTRATOR", "THREAT_MODEL_OPERATOR"].includes(role),
+      ),
       isAuthenticated: state.status === "authed",
       login,
       register,

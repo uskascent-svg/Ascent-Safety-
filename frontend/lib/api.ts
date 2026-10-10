@@ -57,7 +57,9 @@ async function errorMessage(res: Response): Promise<string> {
 export async function api<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const headers = new Headers(init.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  if (init.body) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   const res = await fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include" });
   if (res.status === 401 && retry && (await refreshAccessToken())) {
     return api<T>(path, init, false);

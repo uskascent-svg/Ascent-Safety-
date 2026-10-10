@@ -25,6 +25,8 @@ ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs render-start.sh ./render-start.sh
+RUN chmod +x ./render-start.sh
 USER nextjs
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["sh", "./render-start.sh"]

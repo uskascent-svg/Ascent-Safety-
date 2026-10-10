@@ -14,6 +14,12 @@ from app.models.security_event import (
     Severity,
     ThreatType,
 )
+from app.models.threat_analysis import (
+    ThreatAnalysis,
+    ThreatFeedback,
+    ThreatModelVersion,
+    ThreatTrainingJob,
+)
 from app.models.threat_intel import GeocodeCache, ThreatIntelCache
 from app.models.training import TrainingAttempt, TrainingScenario
 
@@ -43,6 +49,10 @@ __all__ = [
     "RoleName",
     "SecurityEvent",
     "ThreatIntelCache",
+    "ThreatAnalysis",
+    "ThreatFeedback",
+    "ThreatTrainingJob",
+    "ThreatModelVersion",
     "TrainingAttempt",
     "TrainingScenario",
     "Severity",

@@ -34,6 +34,7 @@ services:
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
     healthCheckPath: /
+    dockerCommand: sh /app/render-start.sh
     envVars:
       - key: PORT
         value: 3000

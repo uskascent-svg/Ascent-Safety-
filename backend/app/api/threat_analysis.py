@@ -1,0 +1,868 @@
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import threading
+import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from urllib.parse import urlparse
+
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.core.limiter import limiter
+from app.database.session import get_db
+from app.detection.phishing.parser import parse_fields
+from app.detection.phishing.rules import run_rules
+from app.detection.phishing.text import find_phrases
+from app.detection.phishing.urls import extract_links
+from app.models import (
+    RoleName,
+    ThreatAnalysis,
+    ThreatFeedback,
+    ThreatModelVersion,
+    ThreatTrainingJob,
+    User,
+)
+from app.schemas.threat_analysis import (
+    ThreatAnalysisOut,
+    ThreatAnalysisPage,
+    ThreatAnalyzeRequest,
+    ThreatFeedbackCreate,
+    ThreatFeedbackOut,
+    ThreatFeedbackReview,
+    ThreatFeedbackReviewItem,
+    ThreatFinding,
+    ThreatMetrics,
+    ThreatModelReject,
+)
+from app.security.deps import get_current_user, require_roles
+from app.services import audit
+from app.services.threat_training import (
+    TrainingUnavailable,
+    _decrypt_sample,
+    encrypt_sample,
+    evaluate_for_promotion,
+    run_training_job,
+)
+
+router = APIRouter(prefix="/api/threat-analysis", tags=["threat-analysis"])
+reviewer_only = require_roles(RoleName.ADMINISTRATOR, RoleName.THREAT_DATA_REVIEWER)
+model_operator_only = require_roles(RoleName.ADMINISTRATOR, RoleName.THREAT_MODEL_OPERATOR)
+threat_dashboard_access = require_roles(
+    RoleName.ADMINISTRATOR,
+    RoleName.THREAT_MONITOR,
+    RoleName.THREAT_DATA_REVIEWER,
+    RoleName.THREAT_MODEL_OPERATOR,
+)
+_URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_URGENCY = re.compile(
+    r"\b(urgent|immediately|within \d+ (?:minutes?|hours?)|"
+    r"account (?:will be|has been) (?:closed|suspended|locked))\b",
+    re.I,
+)
+_CREDENTIAL = re.compile(
+    r"\b(password|passcode|one.time code|verification code|sign in|log in|credentials)\b", re.I
+)
+_PAYMENT = re.compile(
+    r"\b(wire transfer|gift cards?|crypto(?:currency)?|bank details|payment)\b", re.I
+)
+_EXEC = re.compile(
+    r"\b(powershell|cmd\.exe|wscript|cscript|rundll32|regsvr32|mshta|certutil|downloadstring|invoke-expression)\b",
+    re.I,
+)
+MAX_UPLOAD_BYTES = min(
+    50 * 1024 * 1024, int(os.getenv("THREAT_ANALYSIS_MAX_BYTES", str(12 * 1024 * 1024)))
+)
+PARSE_TIMEOUT_SECONDS = min(120, max(1, int(os.getenv("THREAT_ANALYSIS_PARSE_TIMEOUT", "20"))))
+MAX_CONCURRENT_PARSES = min(64, max(1, int(os.getenv("THREAT_ANALYSIS_MAX_CONCURRENT", "4"))))
+_PARSE_LOCK = threading.Lock()
+_ACTIVE_PARSES = 0
+_WORKER_PATH = Path(__file__).parents[1] / "workers" / "threat_extract_worker.py"
+
+
+def _extract_file(filename: str, raw: bytes) -> dict:
+    global _ACTIVE_PARSES
+    from app.workers import threat_extract_worker
+
+    ext = Path(filename).suffix.lower()
+    problem = threat_extract_worker.validate_content(ext, raw)
+    if problem:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, problem[1])
+    with _PARSE_LOCK:
+        if _ACTIVE_PARSES >= MAX_CONCURRENT_PARSES:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Analysis capacity reached; retry shortly.",
+                headers={"Retry-After": "5"},
+            )
+        _ACTIVE_PARSES += 1
+    env = {
+        key: os.environ[key]
+        for key in ("PATH", "LANG", "SYSTEMROOT", "TESSDATA_PREFIX")
+        if key in os.environ
+    }
+    env.update(
+        {
+            "ASCENT_WORKER_MEM_BYTES": str(768 * 1024 * 1024),
+            "ASCENT_WORKER_CPU_SECONDS": str(PARSE_TIMEOUT_SECONDS + 5),
+            "ASCENT_WORKER_OCR_TIMEOUT": str(max(1, PARSE_TIMEOUT_SECONDS - 2)),
+            "OMP_THREAD_LIMIT": "1",
+        }
+    )
+    try:
+        # Static interpreter/worker paths only; uploaded bytes go over stdin, never a shell.
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "-I", str(_WORKER_PATH), ext],
+            input=raw,
+            capture_output=True,
+            timeout=PARSE_TIMEOUT_SECONDS,
+            env=env,
+            cwd=tempfile.gettempdir(),
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "failed",
+            "text": "",
+            "indicators": [],
+            "error_code": "timeout",
+            "notes": ["Parsing exceeded the time limit and was terminated."],
+        }
+    except OSError:
+        return {
+            "status": "failed",
+            "text": "",
+            "indicators": [],
+            "error_code": "worker_unavailable",
+            "notes": ["The isolated parser could not be started."],
+        }
+    finally:
+        with _PARSE_LOCK:
+            _ACTIVE_PARSES -= 1
+    if proc.returncode != 0 or not 0 < len(proc.stdout) <= 4 * 1024 * 1024:
+        return {
+            "status": "failed",
+            "text": "",
+            "indicators": [],
+            "error_code": "worker_failed",
+            "notes": ["The parser failed or exceeded a resource limit."],
+        }
+    try:
+        result = json.loads(proc.stdout)
+    except (ValueError, UnicodeDecodeError):
+        result = None
+    if not isinstance(result, dict) or result.get("status") not in {
+        "ok",
+        "no_text",
+        "failed",
+        "limit",
+    }:
+        return {
+            "status": "failed",
+            "text": "",
+            "indicators": [],
+            "error_code": "worker_failed",
+            "notes": ["The parser returned an invalid result."],
+        }
+    return result
+
+
+def _analyze(
+    payload: ThreatAnalyzeRequest,
+) -> tuple[str, str, int, list[ThreatFinding], str, str, str]:
+    text = payload.text.strip()
+    hits: list[ThreatFinding] = []
+    if payload.input_kind == "url":
+        parsed = urlparse(text)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "Provide a valid HTTP or HTTPS URL"
+            )
+        urls = [text]
+    else:
+        urls = _URL.findall(text)
+
+    parsed = parse_fields(
+        None, None, "\n".join(urls or ([text] if payload.input_kind == "url" else [])), None
+    )
+    if parsed.text:
+        # This established application detector extracts and inspects URLs without fetching them.
+        links = extract_links(parsed.text, parsed.html)
+        indicators = run_rules(parsed, links, find_phrases(parsed.subject + "\n" + parsed.text))
+        for indicator in indicators:
+            hits.append(
+                ThreatFinding(
+                    detector="phishing_rules",
+                    code=indicator.code,
+                    severity=indicator.severity,
+                    title=indicator.description,
+                    explanation=indicator.description,
+                    evidence=[
+                        "URL or message indicator matched; submitted content is not retained"
+                    ],
+                )
+            )
+
+    for code, pattern, severity, title, explanation in (
+        (
+            "TEXT_URGENCY",
+            _URGENCY,
+            "medium",
+            "Urgent or coercive language",
+            "Urgency can pressure a recipient to skip independent verification.",
+        ),
+        (
+            "TEXT_CREDENTIAL_REQUEST",
+            _CREDENTIAL,
+            "medium",
+            "Credential-related language",
+            "The content refers to credentials or sign-in; verify requests through "
+            "a trusted channel.",
+        ),
+        (
+            "TEXT_PAYMENT_REQUEST",
+            _PAYMENT,
+            "high",
+            "Payment or value-transfer language",
+            "The content mentions payment or transferable value; verify unusual "
+            "requests independently.",
+        ),
+        (
+            "TEXT_EXECUTABLE_COMMAND",
+            _EXEC,
+            "high",
+            "Executable or scripting command indicator",
+            "The content mentions a command interpreter or script utility; do not "
+            "run untrusted commands.",
+        ),
+    ):
+        if pattern.search(text):
+            hits.append(
+                ThreatFinding(
+                    detector="text_rules",
+                    code=code,
+                    severity=severity,
+                    title=title,
+                    explanation=explanation,
+                    evidence=["Matching phrase detected; submitted content is not retained"],
+                )
+            )
+
+    score = min(
+        100,
+        sum({"critical": 35, "high": 24, "medium": 13, "low": 5}.get(h.severity, 0) for h in hits),
+    )
+    if hits:
+        verdict = "suspicious"
+        severity = "high" if score >= 50 else "medium" if score >= 20 else "low"
+    else:
+        verdict, severity = "unknown", "unknown"
+    completeness = "partial" if payload.input_kind == "document_text" else "complete"
+    explanation = (
+        f"{len(hits)} rule indicator(s) matched. This is a heuristic triage result, "
+        "not a malware scan or guarantee."
+        if hits
+        else "No configured indicators matched. The result is unknown and does not "
+        "establish that the content is safe."
+    )
+    remediation = (
+        "Do not interact with suspicious content; verify requests through an "
+        "independent trusted channel and report concerns to your security team."
+    )
+    return verdict, severity, score, hits, explanation, remediation, completeness
+
+
+def _out(row: ThreatAnalysis) -> ThreatAnalysisOut:
+    return ThreatAnalysisOut(
+        id=row.id,
+        created_at=row.created_at,
+        verdict=row.verdict,
+        severity=row.severity,
+        heuristic_score=row.heuristic_score,
+        completeness=row.completeness,
+        input_kind=row.input_kind,
+        findings=row.findings,
+        explanation=row.explanation,
+        remediation=row.remediation,
+        extraction_status=row.extraction_status,
+        extraction_notes=row.extraction_notes,
+    )
+
+
+@router.post("/analyze", response_model=ThreatAnalysisOut)
+@limiter.limit("20/minute")
+def analyze(
+    request: Request,
+    payload: ThreatAnalyzeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    verdict, severity, score, hits, explanation, remediation, completeness = _analyze(payload)
+    row = ThreatAnalysis(
+        user_id=user.id,
+        content_sha256=hashlib.sha256(payload.text.encode()).hexdigest(),
+        input_kind=payload.input_kind,
+        verdict=verdict,
+        severity=severity,
+        heuristic_score=score,
+        completeness=completeness,
+        findings=[hit.model_dump() for hit in hits],
+        explanation=explanation,
+        remediation=remediation,
+        extraction_status="not_applicable",
+        extraction_notes=[],
+    )
+    db.add(row)
+    db.flush()
+    audit.record(
+        db,
+        "threat_analysis.analyze",
+        request,
+        user.id,
+        {"analysis_id": str(row.id), "verdict": verdict, "finding_count": len(hits)},
+    )
+    db.commit()
+    db.refresh(row)
+    return _out(row)
+
+
+@router.post("/analyze-file", response_model=ThreatAnalysisOut)
+@limiter.limit("10/minute")
+async def analyze_file(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    filename = (file.filename or "upload").replace("\\", "/").rsplit("/", 1)[-1][:180]
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    await file.close()
+    if not raw:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds the configured size limit"
+        )
+    extracted = _extract_file(filename, raw)
+    text = extracted.get("text", "")
+    if len(text) > 100_000:
+        text = text[:100_000]
+        extracted.setdefault("notes", []).append(
+            "Extracted text was truncated to the analysis limit."
+        )
+    if len(text.strip()) >= 20:
+        payload = ThreatAnalyzeRequest(text=text, input_kind="document_text")
+        verdict, severity, score, hits, explanation, remediation, _ = _analyze(payload)
+    else:
+        verdict, severity, score, hits = "unknown", "unknown", 0, []
+        explanation = "No usable text was extracted. The file remains unclassified."
+        remediation = (
+            "Use a supported format with extractable content or submit it to your security team."
+        )
+    for code in extracted.get("indicators", []):
+        hits.append(
+            ThreatFinding(
+                detector="document_structure",
+                code=code,
+                severity="high",
+                title="Potentially active or embedded document content",
+                explanation=(
+                    "The document contains a structure commonly associated with active "
+                    "content or embedded objects."
+                ),
+                evidence=["Structural indicator; document content is not executed"],
+            )
+        )
+    if extracted.get("indicators"):
+        verdict, severity = "suspicious", "high"
+        score = min(100, max(score, 50))
+    if extracted["status"] not in {"ok", "no_text"} and not extracted.get("indicators"):
+        verdict, severity = "unknown", "unknown"
+        explanation = "Extraction was incomplete; this result does not classify the file as safe."
+    row = ThreatAnalysis(
+        user_id=user.id,
+        content_sha256=hashlib.sha256(raw).hexdigest(),
+        input_kind="document_text",
+        verdict=verdict,
+        severity=severity,
+        heuristic_score=score,
+        completeness="complete" if extracted["status"] == "ok" else "partial",
+        findings=[hit.model_dump() for hit in hits],
+        explanation=explanation,
+        remediation=remediation,
+        extraction_status=extracted["status"],
+        extraction_notes=extracted.get("notes", []),
+    )
+    db.add(row)
+    db.flush()
+    audit.record(
+        db,
+        "threat_analysis.upload",
+        request,
+        user.id,
+        {
+            "analysis_id": str(row.id),
+            "verdict": verdict,
+            "extraction_status": extracted["status"],
+            "file_size": len(raw),
+        },
+    )
+    db.commit()
+    db.refresh(row)
+    return _out(row)
+
+
+@router.get("/analyses", response_model=ThreatAnalysisPage)
+def list_analyses(
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    scope = ThreatAnalysis.user_id == user.id
+    total = db.scalar(select(func.count(ThreatAnalysis.id)).where(scope)) or 0
+    rows = db.scalars(
+        select(ThreatAnalysis)
+        .where(scope)
+        .order_by(ThreatAnalysis.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    from app.schemas.threat_analysis import ThreatAnalysisPage, ThreatAnalysisSummary
+
+    return ThreatAnalysisPage(
+        items=[ThreatAnalysisSummary.model_validate(row, from_attributes=True) for row in rows],
+        total=total,
+    )
+
+
+@router.get("/analyses/{analysis_id}", response_model=ThreatAnalysisOut)
+def get_analysis(
+    analysis_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    row = db.get(ThreatAnalysis, analysis_id)
+    if row is None or row.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis not found")
+    return _out(row)
+
+
+@router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_analysis(
+    analysis_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = db.scalar(
+        select(ThreatAnalysis).where(
+            ThreatAnalysis.id == analysis_id, ThreatAnalysis.user_id == user.id
+        )
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis not found")
+    audit.record(db, "threat_analysis.delete", request, user.id, {"analysis_id": str(analysis_id)})
+    db.delete(row)
+    db.commit()
+    return None
+
+
+@router.get("/admin/metrics", response_model=ThreatMetrics)
+def metrics(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _: User = Depends(threat_dashboard_access),
+):
+    start = datetime.now(UTC) - timedelta(days=days)
+    rows = db.execute(
+        select(ThreatAnalysis.verdict, ThreatAnalysis.severity, func.count(ThreatAnalysis.id))
+        .where(ThreatAnalysis.created_at >= start)
+        .group_by(ThreatAnalysis.verdict, ThreatAnalysis.severity)
+    ).all()
+    by_verdict = {key: 0 for key in ("malicious", "suspicious", "benign", "unknown")}
+    by_severity = {key: 0 for key in ("critical", "high", "medium", "low", "unknown")}
+    for verdict, severity, count in rows:
+        by_verdict[verdict] = by_verdict.get(verdict, 0) + count
+        by_severity[severity] = by_severity.get(severity, 0) + count
+    return ThreatMetrics(
+        window_days=days,
+        total=sum(by_verdict.values()),
+        by_verdict=by_verdict,
+        by_severity=by_severity,
+    )
+
+
+@router.get("/admin/dashboard")
+def admin_dashboard(db: Session = Depends(get_db), _: User = Depends(threat_dashboard_access)):
+    summary = metrics(days=30, db=db, _=None)
+    active = _active_model_status(db)
+    return {
+        "refreshed_at": datetime.now(UTC),
+        "window_days": summary.window_days,
+        "total": summary.total,
+        "by_verdict": summary.by_verdict,
+        "by_severity": summary.by_severity,
+        "detection_quality": (
+            active.get("metrics", {}).get("promotion_evaluation")
+            if active["state"] == "active"
+            else None
+        ),
+        "source": "persisted user threat analyses",
+        "note": (
+            "Analysis counts are persisted rule-based triage records. Detection-quality metrics "
+            "come only from an active model's independent promotion evaluation; they do not "
+            "measure the heuristic analyzer."
+        ),
+        "model_status": active,
+    }
+
+
+def _active_model_status(db: Session) -> dict:
+    row = db.scalar(select(ThreatModelVersion).where(ThreatModelVersion.state == "active"))
+    if row is None:
+        return {"state": "rules_only", "version": None}
+    return {"state": "active", "version": row.version, "metrics": row.metrics}
+
+
+@router.post(
+    "/analyses/{analysis_id}/feedback",
+    response_model=ThreatFeedbackOut,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("10/minute")
+def submit_feedback(
+    analysis_id: uuid.UUID,
+    payload: ThreatFeedbackCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    analysis = db.scalar(
+        select(ThreatAnalysis).where(
+            ThreatAnalysis.id == analysis_id, ThreatAnalysis.user_id == user.id
+        )
+    )
+    if analysis is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis not found")
+    exists = db.scalar(
+        select(ThreatFeedback.id).where(
+            ThreatFeedback.analysis_id == analysis_id,
+            ThreatFeedback.user_id == user.id,
+        )
+    )
+    if exists:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Feedback was already submitted")
+    encrypted_sample = None
+    if payload.include_in_training:
+        try:
+            encrypted_sample = encrypt_sample(payload.training_sample)
+        except TrainingUnavailable as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    row = ThreatFeedback(
+        analysis_id=analysis_id,
+        user_id=user.id,
+        candidate_label=payload.candidate_label,
+        reason=payload.reason.strip(),
+        training_sample_encrypted=encrypted_sample,
+        status="pending",
+    )
+    db.add(row)
+    db.flush()
+    audit.record(
+        db,
+        "threat_analysis.feedback_submit",
+        request,
+        user.id,
+        {"analysis_id": str(analysis_id), "candidate_label": payload.candidate_label},
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.get("/admin/feedback", response_model=list[ThreatFeedbackReviewItem])
+def list_feedback(
+    request: Request,
+    status_filter: str = Query(
+        default="pending", alias="status", pattern="^(pending|approved|rejected)$"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(reviewer_only),
+):
+    rows = db.scalars(
+        select(ThreatFeedback)
+        .where(ThreatFeedback.status == status_filter)
+        .order_by(ThreatFeedback.created_at.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    output = []
+    for row in rows:
+        sample = None
+        if row.training_sample_encrypted:
+            try:
+                sample = _decrypt_sample(row.training_sample_encrypted)
+            except TrainingUnavailable as exc:
+                raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+        output.append(
+            ThreatFeedbackReviewItem.model_validate(
+                {
+                    **row.__dict__,
+                    "includes_training_sample": row.training_sample_encrypted is not None,
+                    "training_sample": sample,
+                },
+                from_attributes=True,
+            )
+        )
+    if any(item.training_sample is not None for item in output):
+        audit.record(
+            db,
+            "threat_analysis.training_sample_review",
+            request,
+            reviewer.id,
+            {"sample_count": sum(item.training_sample is not None for item in output)},
+        )
+        db.commit()
+    return output
+
+
+@router.post("/admin/feedback/{feedback_id}/review", response_model=ThreatFeedbackOut)
+def review_feedback(
+    feedback_id: uuid.UUID,
+    payload: ThreatFeedbackReview,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(reviewer_only),
+):
+    row = db.get(ThreatFeedback, feedback_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Feedback not found")
+    if row.status != "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Feedback has already been reviewed")
+    if row.user_id == admin.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "A reviewer cannot approve their own feedback"
+        )
+    row.status = "approved" if payload.decision == "approve" else "rejected"
+    row.reviewed_by_id = admin.id
+    row.review_note = payload.note.strip()
+    row.reviewed_at = datetime.now(UTC)
+    audit.record(
+        db,
+        "threat_analysis.feedback_review",
+        request,
+        admin.id,
+        {"feedback_id": str(row.id), "decision": payload.decision},
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.post("/admin/training-jobs", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("2/hour")
+def start_training(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    admin: User = Depends(model_operator_only),
+):
+    settings = get_settings()
+    if not settings.threat_analysis_data_key or not settings.threat_analysis_model_hmac_key:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Encrypted samples and model signing must be configured before training.",
+        )
+    if not settings.threat_analysis_independent_test_set:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Training is blocked until an independent labeled evaluation set is configured.",
+        )
+    running = db.scalar(
+        select(ThreatTrainingJob.id).where(ThreatTrainingJob.status.in_(("queued", "running")))
+    )
+    if running:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A training job is already active")
+    job = ThreatTrainingJob(
+        requested_by_id=admin.id,
+        status="queued",
+        message="Waiting for the candidate trainer.",
+    )
+    db.add(job)
+    db.flush()
+    audit.record(db, "threat_analysis.training_start", request, admin.id, {"job_id": str(job.id)})
+    db.commit()
+    background_tasks.add_task(run_training_job, job.id)
+    return {"id": str(job.id), "status": job.status, "message": job.message}
+
+
+@router.get("/admin/training-jobs/{job_id}")
+def get_training_job(
+    job_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(model_operator_only),
+):
+    job = db.get(ThreatTrainingJob, job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Training job not found")
+    return {
+        "id": str(job.id),
+        "status": job.status,
+        "message": job.message,
+        "sample_count": job.sample_count,
+        "metrics": job.metrics,
+        "model_version_id": str(job.model_version_id) if job.model_version_id else None,
+        "created_at": job.created_at,
+        "finished_at": job.finished_at,
+    }
+
+
+@router.get("/admin/models")
+def list_models(
+    db: Session = Depends(get_db),
+    _: User = Depends(threat_dashboard_access),
+):
+    rows = db.scalars(
+        select(ThreatModelVersion).order_by(ThreatModelVersion.created_at.desc())
+    ).all()
+    return [
+        {
+            "id": str(row.id),
+            "version": row.version,
+            "state": row.state,
+            "metrics": row.metrics,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+
+@router.post("/admin/models/{version_id}/reject")
+def reject_model(
+    version_id: uuid.UUID,
+    payload: ThreatModelReject,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(model_operator_only),
+):
+    row = db.get(ThreatModelVersion, version_id)
+    if row is None or row.state != "candidate":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Candidate model not found")
+    row.state = "rejected"
+    audit.record(
+        db,
+        "threat_analysis.model_reject",
+        request,
+        admin.id,
+        {"model_version": row.version, "note": payload.note.strip()},
+    )
+    db.commit()
+    return {"version": row.version, "state": row.state}
+
+
+@router.post("/admin/models/{version_id}/promote")
+def promote_model(
+    version_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(model_operator_only),
+):
+    row = db.get(ThreatModelVersion, version_id)
+    if row is None or row.state not in {"candidate", "superseded"}:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Promotable model version not found")
+    try:
+        metrics = evaluate_for_promotion(row)
+    except TrainingUnavailable as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    active = db.scalars(
+        select(ThreatModelVersion).where(ThreatModelVersion.state == "active")
+    ).all()
+    for current in active:
+        current.state = "superseded"
+    row.state = "active"
+    row.metrics = {**row.metrics, "promotion_evaluation": metrics}
+    audit.record(
+        db,
+        "threat_analysis.model_promote",
+        request,
+        admin.id,
+        {"model_version": row.version, "metrics": metrics},
+    )
+    db.commit()
+    return {"version": row.version, "state": row.state, "metrics": metrics}
+
+
+@router.post("/admin/models/{version_id}/rollback")
+def rollback_model(
+    version_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(model_operator_only),
+):
+    row = db.get(ThreatModelVersion, version_id)
+    if row is None or row.state != "superseded":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Rollback target not found")
+    try:
+        metrics = evaluate_for_promotion(row)
+    except TrainingUnavailable as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    active = db.scalars(
+        select(ThreatModelVersion).where(ThreatModelVersion.state == "active")
+    ).all()
+    for current in active:
+        current.state = "superseded"
+    row.state = "active"
+    audit.record(
+        db,
+        "threat_analysis.model_rollback",
+        request,
+        admin.id,
+        {"model_version": row.version, "metrics": metrics},
+    )
+    db.commit()
+    return {"version": row.version, "state": row.state, "metrics": metrics}
+
+
+@router.post("/admin/retention/purge")
+def purge_expired_analyses(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(model_operator_only),
+):
+    retention_days = min(3650, max(1, int(os.getenv("THREAT_ANALYSIS_RETENTION_DAYS", "30"))))
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    expired = (
+        db.scalar(select(func.count(ThreatAnalysis.id)).where(ThreatAnalysis.created_at < cutoff))
+        or 0
+    )
+    expired_ids = select(ThreatAnalysis.id).where(ThreatAnalysis.created_at < cutoff)
+    # Delete linked feedback explicitly; SQLite test databases may not enable FK cascades.
+    db.execute(delete(ThreatFeedback).where(ThreatFeedback.analysis_id.in_(expired_ids)))
+    db.execute(delete(ThreatAnalysis).where(ThreatAnalysis.created_at < cutoff))
+    audit.record(
+        db,
+        "threat_analysis.retention_purge",
+        request,
+        admin.id,
+        {"deleted_analyses": expired, "retention_days": retention_days},
+    )
+    db.commit()
+    return {"deleted_analyses": expired, "retention_days": retention_days}

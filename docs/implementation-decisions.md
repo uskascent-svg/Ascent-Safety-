@@ -82,6 +82,29 @@ continued without needing the original chat.
 
 ## Change log
 
+- 2026-10-10: Integrated the v3 analyzer in bounded stages. Reused the application's verified user
+  identity, existing phishing URL rules, SQLAlchemy/PostgreSQL database, Alembic, and audit log rather
+  than mounting the package's separate API-key/SQLite identity boundary. Added revision 0013, a
+  content-hash-only `ThreatAnalysis` record, owner-filtered user APIs, rate-limited static text/URL
+  analysis, and administrator-only persisted-result aggregates. Added responsive Threat Analyzer
+  and Threat Detection Network pages in the current theme. Follow-up integration adds isolated file
+  extraction, owner-scoped feedback, administrator review, encrypted opt-in samples, independent
+  evaluation and signed candidate-model lifecycle, plus retention deletion. Training is disabled
+  until deployment keys, persistent artifact storage, and a distinct labeled evaluation set are
+  configured. The trainer currently runs as a FastAPI background task; restart recovery marks active
+  jobs failed rather than resuming them. Parser POSIX resource limits are not equivalent on Windows.
+  Added distinct monitoring, reviewer, and model-operator roles while keeping the legacy administrator
+  role compatible. Role grant/revoke is available through `app.bootstrap_threat_role`. No queue,
+  sensor, or worker-health metrics are presented as live data. Pre-change backend baseline was 203
+  passed/1 failed (TLS finding deduplication); frontend baseline 36 passed. Final main-project checks:
+  222 backend tests passed with one Starlette 413-status deprecation warning; frontend typecheck,
+  lint, 36 tests, and production build passed. Compose services are healthy at migration 0014, and
+  `/`, `/login`, `/threat-analyzer`, `/threat-network`, and `/api/health/ready` returned HTTP 200.
+  The archive suite passed 83/83 in its Linux package environment. Its Windows run passed 81 and
+  failed two platform-specific checks: POSIX parser memory limits and POSIX file mode bits. These
+  results do not verify production deployment. See `docs/threat-upgrade-verification.md` for the
+  verification matrix and remaining limits.
+
 - 2026-10-07: Added an India-first Legal & Compliance center with structured source-controlled content
   for the IT Act, CERT-In Directions, DPDP Act and final 2025 Rules, GDPR, NIST CSF 2.0, ISO/IEC 27001,
   PCI DSS, HIPAA, and SOC 2. Sources were checked against official authorities on 7 October 2026; the

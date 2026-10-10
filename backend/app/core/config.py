@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     # Path to a joblib artifact produced by ml/training/train.py. Unset = rules-only detection.
     ml_model_path: str | None = None
+    threat_analysis_data_key: str | None = None
+    threat_analysis_independent_test_set: str | None = None
+    threat_analysis_model_hmac_key: str | None = None
+    threat_analysis_model_dir: str = "./threat_analysis_models"
     sse_max_seconds: int = 600  # streams end after this so clients re-authenticate on reconnect
     sse_heartbeat_seconds: int = 15
     # Optional threat-intel keys (used in later phases)
@@ -73,6 +77,9 @@ class Settings(BaseSettings):
         "google_api_key",
         "ingest_api_key",
         "ml_model_path",
+        "threat_analysis_data_key",
+        "threat_analysis_independent_test_set",
+        "threat_analysis_model_hmac_key",
         mode="before",
     )
     @classmethod

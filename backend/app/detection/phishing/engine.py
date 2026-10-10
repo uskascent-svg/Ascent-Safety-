@@ -28,8 +28,21 @@ class AnalysisResult:
 
 
 @lru_cache
+def _get_classifier(path: str | None, version_key: str | None = None) -> MlClassifier:
+    return MlClassifier(path)
+
+
 def get_classifier() -> MlClassifier:
-    return MlClassifier(get_settings().ml_model_path)
+    configured = get_settings().ml_model_path
+    if configured:
+        return _get_classifier(configured)
+    try:
+        from app.services.threat_training import verified_active_model_path
+
+        active = verified_active_model_path()
+    except Exception:
+        active = None
+    return _get_classifier(*active) if active else _get_classifier(None)
 
 
 def analyze(
