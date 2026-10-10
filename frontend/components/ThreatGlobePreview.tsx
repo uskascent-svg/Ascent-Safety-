@@ -32,13 +32,13 @@ export default function ThreatGlobePreview({ user }: { user: User | null }) {
                 Sign in
               </Link>
             )}
-            <Link href="/phishing" className="btn-secondary">
+            <Link href="/threat-analyzer" className="btn-secondary">
               Analyze a message
             </Link>
           </div>
           <p className="mt-5 max-w-lg border-l border-slate-700 pl-3 text-xs leading-relaxed text-slate-400">
             {user
-              ? "Your account can use the phishing tools. Ask an administrator to assign the Security Analyst role to view protected event locations."
+              ? "Your account can use Threat Analyzer. Ask an administrator to assign the Security Analyst role to view protected event locations."
               : "The Earth preview contains no threat markers. Sign in with a Security Analyst or Administrator account to access protected event data."}
           </p>
         </div>

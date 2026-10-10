@@ -35,7 +35,12 @@ class ThreatAnalysisOut(BaseModel):
     verdict: Literal["malicious", "suspicious", "benign", "unknown"]
     severity: Literal["critical", "high", "medium", "low", "unknown"]
     heuristic_score: int = Field(ge=0, le=100)
-    score_type: Literal["heuristic"] = "heuristic"
+    score_type: Literal["heuristic", "hybrid"] = "heuristic"
+    detector_mode: Literal["rules_only", "hybrid"] = "rules_only"
+    model_version: str | None = None
+    model_family: str | None = None
+    model_confidence: float | None = Field(default=None, ge=0, le=1)
+    combined_score: int | None = Field(default=None, ge=0, le=100)
     completeness: Literal["complete", "partial"]
     input_kind: str
     findings: list[ThreatFinding]
@@ -66,6 +71,7 @@ class ThreatMetrics(BaseModel):
     by_verdict: dict[str, int]
     by_severity: dict[str, int]
     heuristic_only: bool = True
+    detector_modes: dict[str, int] = Field(default_factory=dict)
     detection_quality: None = None
     source: Literal["persisted user threat analyses"] = "persisted user threat analyses"
 

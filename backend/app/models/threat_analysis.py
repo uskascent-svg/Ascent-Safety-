@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -44,6 +45,13 @@ class ThreatAnalysis(Base):
         String(16), nullable=False, default="not_applicable"
     )
     extraction_notes: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    detector_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="rules_only", server_default="rules_only"
+    )
+    model_version: Mapped[str | None] = mapped_column(String(80))
+    model_family: Mapped[str | None] = mapped_column(String(40))
+    model_confidence: Mapped[float | None] = mapped_column(Float)
+    combined_score: Mapped[int | None] = mapped_column(Integer)
 
 
 class ThreatFeedback(Base):
@@ -104,6 +112,7 @@ class ThreatModelVersion(Base):
     artifact_path: Mapped[str] = mapped_column(String(500), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_family: Mapped[str | None] = mapped_column(String(40))
     metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_by_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False

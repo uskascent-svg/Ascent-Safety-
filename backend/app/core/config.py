@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     refresh_token_days: int = 7
     cors_origins: list[str] = ["http://localhost:3000"]
     cookie_secure: bool = True
-    # Path to a joblib artifact produced by ml/training/train.py. Unset = rules-only detection.
+    # Optional legacy artifact override. Unset uses the active signed registry model if available.
     ml_model_path: str | None = None
     threat_analysis_data_key: str | None = None
     threat_analysis_independent_test_set: str | None = None

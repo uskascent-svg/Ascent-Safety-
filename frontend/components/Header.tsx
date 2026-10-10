@@ -4,18 +4,10 @@ import {
   Activity,
   Bell,
   BellRing,
-  BookOpen,
-  Compass,
-  FilePlus2,
-  LayoutDashboard,
   LockKeyhole,
   LogOut,
-  Mail,
   Menu,
-  Network,
-  Shield,
   Search,
-  ScrollText,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,18 +17,8 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { navigationItemAllowed, WORKSPACE_NAVIGATION } from "@/lib/navigation";
 import type { AlertPage, NotificationPage } from "@/types/api";
-
-const CORE_NAV = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/security-panel", label: "Security", icon: Shield },
-  { href: "/reports", label: "Report issue", icon: FilePlus2 },
-  { href: "/case-studies", label: "Case studies", icon: BookOpen },
-  { href: "/legal-compliance", label: "Legal & compliance", icon: ScrollText },
-  { href: "/guidance", label: "Guidance assistant", icon: Compass },
-  { href: "/phishing", label: "Phishing lab", icon: Mail },
-  { href: "/threat-analyzer", label: "Threat analyzer", icon: Shield },
-];
 
 function SystemStatus() {
   const [state, setState] = useState<"checking" | "online" | "offline">("checking");
@@ -76,7 +58,7 @@ export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const { status, user, isAdmin, canViewPanel, canAccessThreatNetwork, logout } = useAuth();
+  const { status, user, canViewPanel, canAccessThreatNetwork, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const alertSummary = useQuery({
@@ -99,14 +81,13 @@ export default function Header() {
     mutationFn: () => api("/api/notifications/read-all", { method: "POST" }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["notifications"] }),
   });
-  const navItems = [
-    ...CORE_NAV,
-    ...(canViewPanel ? [{ href: "/endpoints", label: "Defense center", icon: LockKeyhole }] : []),
-    ...(isAdmin ? [{ href: "/sensors", label: "Network sensors", icon: Network }] : []),
-    ...(canAccessThreatNetwork ? [{ href: "/threat-network", label: "Threat detection network", icon: Activity }] : []),
-  ];
+  const navItems = WORKSPACE_NAVIGATION.filter((item) => navigationItemAllowed(item, {
+    authenticated: status === "authed",
+    canViewPanel,
+    canAccessThreatNetwork: Boolean(canAccessThreatNetwork),
+  }));
 
-  const navLink = (href: string, label: string, Icon: (typeof CORE_NAV)[number]["icon"]) => {
+  const navLink = (href: string, label: string, Icon: (typeof WORKSPACE_NAVIGATION)[number]["icon"]) => {
     const active = href === "/" ? pathname === href : pathname.startsWith(href);
     return (
       <Link
@@ -114,6 +95,7 @@ export default function Header() {
         href={href}
         onClick={() => setMobileOpen(false)}
         aria-current={active ? "page" : undefined}
+        title={WORKSPACE_NAVIGATION.find((item) => item.href === href)?.description}
         className={`group flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition duration-200 ${
           active
             ? "border-accent/20 bg-accent/[0.09] text-white shadow-[inset_2px_0_0_0_#00d9ff,0_8px_24px_-20px_rgba(0,217,255,0.65)]"
@@ -186,7 +168,7 @@ export default function Header() {
               {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>
             <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-slate-200">{navItems.find((item) => item.href === pathname)?.label ?? "Ascent workspace"}</p>
+              <p className="truncate text-xs font-medium text-slate-200">{navItems.find((item) => item.href === pathname)?.label ?? WORKSPACE_NAVIGATION.find((item) => item.href === pathname)?.label ?? "Ascent workspace"}</p>
               <p className="mt-0.5 hidden font-mono text-[9px] uppercase tracking-[0.16em] text-slate-600 sm:block">Threat intelligence workspace</p>
             </div>
           </div>

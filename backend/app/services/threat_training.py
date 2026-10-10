@@ -13,17 +13,18 @@ from pathlib import Path
 import joblib
 from cryptography.fernet import Fernet, InvalidToken
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score
-from sklearn.pipeline import Pipeline
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import FeatureUnion, Pipeline
 
 from app.core.config import get_settings
 from app.database.session import SessionLocal
+from app.detection.phishing.ml import ML_DECISION_THRESHOLD
 from app.models import ThreatFeedback, ThreatModelVersion, ThreatTrainingJob
 
 MIN_SAMPLES = 20
 MIN_PER_CLASS = 10
-MIN_TRAIN_PER_CLASS = 3
+MIN_TRAIN_PER_CLASS = 10
 MAX_TEST_BYTES = 50 * 1024 * 1024
 
 
@@ -91,7 +92,7 @@ def _evaluation_set() -> tuple[list[str], list[int]]:
 
 def _evaluate(pipeline: Pipeline, texts: list[str], labels: list[int]) -> dict[str, float | int]:
     probabilities = pipeline.predict_proba(texts)[:, 1]
-    predictions = (probabilities >= 0.5).astype(int)
+    predictions = (probabilities >= ML_DECISION_THRESHOLD).astype(int)
     negatives = sum(label == 0 for label in labels)
     positives = sum(label == 1 for label in labels)
     false_positive = sum(
@@ -144,12 +145,14 @@ def _verified_path(row: ThreatModelVersion) -> Path:
 
 
 def _pipeline_compatible(pipeline) -> bool:
+    classifier = pipeline.named_steps["clf"] if isinstance(pipeline, Pipeline) else None
     return (
         isinstance(pipeline, Pipeline)
         and [name for name, _ in pipeline.steps] == ["tfidf", "clf"]
         and hasattr(pipeline.named_steps["tfidf"], "transform")
-        and hasattr(pipeline.named_steps["clf"], "predict_proba")
-        and set(pipeline.named_steps["clf"].classes_) == {0, 1}
+        and hasattr(classifier, "predict_proba")
+        and (hasattr(classifier, "coefs_") or hasattr(classifier, "coef_"))
+        and set(classifier.classes_) == {0, 1}
     )
 
 
@@ -212,15 +215,50 @@ def run_training_job(job_id: uuid.UUID) -> None:
             training_job.sample_count = len(samples)
             db.commit()
 
+        # Adapt the uploaded prototype's word/character TF-IDF + MLP design to the
+        # existing signed artifact registry and independently evaluated job workflow.
         pipeline = Pipeline(
             [
                 (
                     "tfidf",
-                    TfidfVectorizer(ngram_range=(1, 2), max_features=150_000, sublinear_tf=True),
+                    FeatureUnion(
+                        [
+                            (
+                                "word",
+                                TfidfVectorizer(
+                                    ngram_range=(1, 2),
+                                    max_features=25_000,
+                                    strip_accents="unicode",
+                                    sublinear_tf=True,
+                                ),
+                            ),
+                            (
+                                "char",
+                                TfidfVectorizer(
+                                    analyzer="char",
+                                    ngram_range=(3, 5),
+                                    max_features=25_000,
+                                    min_df=1,
+                                    sublinear_tf=True,
+                                ),
+                            ),
+                        ]
+                    ),
                 ),
                 (
                     "clf",
-                    LogisticRegression(max_iter=1000, class_weight="balanced", random_state=17),
+                    MLPClassifier(
+                        hidden_layer_sizes=(64, 32),
+                        activation="relu",
+                        solver="adam",
+                        alpha=1e-4,
+                        batch_size="auto",
+                        learning_rate_init=1e-3,
+                        max_iter=500,
+                        tol=1e-3,
+                        early_stopping=False,
+                        random_state=17,
+                    ),
                 ),
             ]
         )
@@ -239,7 +277,10 @@ def run_training_job(job_id: uuid.UUID) -> None:
         ) as tmp:
             temp_path = Path(tmp.name)
         try:
-            joblib.dump({"pipeline": pipeline, "version": version}, temp_path)
+            joblib.dump(
+                {"pipeline": pipeline, "version": version, "model_family": "tfidf_mlp"},
+                temp_path,
+            )
             os.replace(temp_path, artifact)
         finally:
             temp_path.unlink(missing_ok=True)
@@ -253,6 +294,7 @@ def run_training_job(job_id: uuid.UUID) -> None:
                 artifact_path=str(artifact),
                 sha256=digest,
                 signature=signature,
+                model_family="tfidf_mlp",
                 metrics=metrics,
                 created_by_id=job.requested_by_id,
             )

@@ -103,7 +103,7 @@ def test_approved_consent_samples_train_and_promote_only_after_held_out_evaluati
             message="Waiting for trainer.",
         )
         db.add(job)
-        for i in range(3):
+        for i in range(10):
             for user, label, content in (
                 (
                     benign_user,
@@ -149,11 +149,17 @@ def test_approved_consent_samples_train_and_promote_only_after_held_out_evaluati
     with session_factory() as db:
         completed = db.get(ThreatTrainingJob, job_id)
         assert completed.status == "candidate"
-        assert completed.sample_count == 6, completed.message
+        assert completed.sample_count == 20, completed.message
         assert completed.metrics["f1"] >= 0.65
         model = db.get(ThreatModelVersion, completed.model_version_id)
         model_id = model.id
+        assert model.model_family == "tfidf_mlp"
         assert threat_training._verified_path(model).is_file()
+        trained_bundle = threat_training.joblib.load(threat_training._verified_path(model))
+        assert trained_bundle["model_family"] == "tfidf_mlp"
+        assert isinstance(
+            trained_bundle["pipeline"].named_steps["clf"], threat_training.MLPClassifier
+        )
 
     promoted = client.post(
         f"/api/threat-analysis/admin/models/{model_id}/promote", headers=operator_headers

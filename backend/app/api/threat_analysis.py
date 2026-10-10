@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -28,9 +29,11 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.database.session import get_db
+from app.detection.phishing.engine import get_classifier
+from app.detection.phishing.ml import ML_DECISION_THRESHOLD
 from app.detection.phishing.parser import parse_fields
 from app.detection.phishing.rules import run_rules
-from app.detection.phishing.text import find_phrases
+from app.detection.phishing.text import find_phrases, model_text
 from app.detection.phishing.urls import extract_links
 from app.models import (
     RoleName,
@@ -71,7 +74,6 @@ threat_dashboard_access = require_roles(
     RoleName.THREAT_DATA_REVIEWER,
     RoleName.THREAT_MODEL_OPERATOR,
 )
-_URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _URGENCY = re.compile(
     r"\b(urgent|immediately|within \d+ (?:minutes?|hours?)|"
     r"account (?:will be|has been) (?:closed|suspended|locked))\b",
@@ -95,6 +97,7 @@ MAX_CONCURRENT_PARSES = min(64, max(1, int(os.getenv("THREAT_ANALYSIS_MAX_CONCUR
 _PARSE_LOCK = threading.Lock()
 _ACTIVE_PARSES = 0
 _WORKER_PATH = Path(__file__).parents[1] / "workers" / "threat_extract_worker.py"
+log = logging.getLogger("ascent.threat_analysis")
 
 
 def _extract_file(filename: str, raw: bytes) -> dict:
@@ -186,7 +189,20 @@ def _extract_file(filename: str, raw: bytes) -> dict:
 
 def _analyze(
     payload: ThreatAnalyzeRequest,
-) -> tuple[str, str, int, list[ThreatFinding], str, str, str]:
+) -> tuple[
+    str,
+    str,
+    int,
+    list[ThreatFinding],
+    str,
+    str,
+    str,
+    str | None,
+    float | None,
+    int,
+    str,
+    str | None,
+]:
     text = payload.text.strip()
     hits: list[ThreatFinding] = []
     if payload.input_kind == "url":
@@ -195,30 +211,21 @@ def _analyze(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY, "Provide a valid HTTP or HTTPS URL"
             )
-        urls = [text]
-    else:
-        urls = _URL.findall(text)
-
-    parsed = parse_fields(
-        None, None, "\n".join(urls or ([text] if payload.input_kind == "url" else [])), None
-    )
-    if parsed.text:
-        # This established application detector extracts and inspects URLs without fetching them.
-        links = extract_links(parsed.text, parsed.html)
-        indicators = run_rules(parsed, links, find_phrases(parsed.subject + "\n" + parsed.text))
-        for indicator in indicators:
-            hits.append(
-                ThreatFinding(
-                    detector="phishing_rules",
-                    code=indicator.code,
-                    severity=indicator.severity,
-                    title=indicator.description,
-                    explanation=indicator.description,
-                    evidence=[
-                        "URL or message indicator matched; submitted content is not retained"
-                    ],
-                )
+    parsed = parse_fields(None, None, text, None)
+    links = extract_links(parsed.text, parsed.html)
+    indicators = run_rules(parsed, links, find_phrases(parsed.subject + "\n" + parsed.text))
+    for indicator in indicators:
+        hits.append(
+            ThreatFinding(
+                detector="phishing_rules",
+                code=indicator.code,
+                severity=indicator.severity,
+                title=indicator.description,
+                explanation=indicator.description,
+                evidence=indicator.evidence
+                or ["Rule indicator matched; submitted content is not retained"],
             )
+        )
 
     for code, pattern, severity, title, explanation in (
         (
@@ -269,15 +276,53 @@ def _analyze(
         100,
         sum({"critical": 35, "high": 24, "medium": 13, "low": 5}.get(h.severity, 0) for h in hits),
     )
+    rule_indicator_count = len(hits)
+    model_result = None
+    try:
+        classifier = get_classifier()
+        if classifier.available:
+            model_result = classifier.predict(model_text(parsed.subject, parsed.text))
+    except Exception:
+        # Detector loading/inference must fail closed to the existing rules.
+        log.exception("Optional threat model unavailable; completing analysis with rules only")
+    combined_score = (
+        round(0.7 * score + 0.3 * model_result.probability * 100)
+        if model_result is not None
+        else score
+    )
+    if model_result is not None and model_result.probability >= ML_DECISION_THRESHOLD:
+        hits.append(
+            ThreatFinding(
+                detector=model_result.model_family,
+                code="MODEL_MALICIOUS_SCORE",
+                severity="medium",
+                title="Text classifier flagged malicious-content patterns",
+                explanation=(
+                    "The active text classifier crossed its evaluated malicious-class cutoff. "
+                    "This confidence is not calibrated and is not proof of compromise."
+                ),
+                evidence=[
+                    f"Model score {model_result.probability:.3f} · "
+                    f"version {model_result.model_version}"
+                ],
+            )
+        )
     if hits:
         verdict = "suspicious"
-        severity = "high" if score >= 50 else "medium" if score >= 20 else "low"
+        severity = "high" if combined_score >= 50 else "medium" if combined_score >= 20 else "low"
     else:
         verdict, severity = "unknown", "unknown"
     completeness = "partial" if payload.input_kind == "document_text" else "complete"
     explanation = (
-        f"{len(hits)} rule indicator(s) matched. This is a heuristic triage result, "
-        "not a malware scan or guarantee."
+        f"{rule_indicator_count} "
+        "rule indicator(s) matched. "
+        + (
+            f"The {model_result.model_family} model returned an uncalibrated malicious-class "
+            f"score of {model_result.probability:.3f} (version {model_result.model_version}). "
+            if model_result
+            else "No active machine-learning model was available; rules-only fallback was used. "
+        )
+        + "This triage is not a malware scan or guarantee."
         if hits
         else "No configured indicators matched. The result is unknown and does not "
         "establish that the content is safe."
@@ -286,7 +331,20 @@ def _analyze(
         "Do not interact with suspicious content; verify requests through an "
         "independent trusted channel and report concerns to your security team."
     )
-    return verdict, severity, score, hits, explanation, remediation, completeness
+    return (
+        verdict,
+        severity,
+        score,
+        hits,
+        explanation,
+        remediation,
+        completeness,
+        model_result.model_version if model_result else None,
+        model_result.probability if model_result else None,
+        combined_score,
+        "hybrid" if model_result else "rules_only",
+        model_result.model_family if model_result else None,
+    )
 
 
 def _out(row: ThreatAnalysis) -> ThreatAnalysisOut:
@@ -296,6 +354,12 @@ def _out(row: ThreatAnalysis) -> ThreatAnalysisOut:
         verdict=row.verdict,
         severity=row.severity,
         heuristic_score=row.heuristic_score,
+        score_type="hybrid" if row.detector_mode == "hybrid" else "heuristic",
+        detector_mode=row.detector_mode,
+        model_version=row.model_version,
+        model_family=row.model_family,
+        model_confidence=row.model_confidence,
+        combined_score=row.combined_score,
         completeness=row.completeness,
         input_kind=row.input_kind,
         findings=row.findings,
@@ -314,7 +378,10 @@ def analyze(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    verdict, severity, score, hits, explanation, remediation, completeness = _analyze(payload)
+    (
+        verdict, severity, score, hits, explanation, remediation, completeness,
+        model_version, model_confidence, combined_score, detector_mode, model_family,
+    ) = _analyze(payload)
     row = ThreatAnalysis(
         user_id=user.id,
         content_sha256=hashlib.sha256(payload.text.encode()).hexdigest(),
@@ -322,6 +389,11 @@ def analyze(
         verdict=verdict,
         severity=severity,
         heuristic_score=score,
+        combined_score=combined_score,
+        detector_mode=detector_mode,
+        model_version=model_version,
+        model_confidence=model_confidence,
+        model_family=model_family,
         completeness=completeness,
         findings=[hit.model_dump() for hit in hits],
         explanation=explanation,
@@ -369,9 +441,14 @@ async def analyze_file(
         )
     if len(text.strip()) >= 20:
         payload = ThreatAnalyzeRequest(text=text, input_kind="document_text")
-        verdict, severity, score, hits, explanation, remediation, _ = _analyze(payload)
+        (
+            verdict, severity, score, hits, explanation, remediation, _,
+            model_version, model_confidence, combined_score, detector_mode, model_family,
+        ) = _analyze(payload)
     else:
         verdict, severity, score, hits = "unknown", "unknown", 0, []
+        model_version = model_confidence = model_family = None
+        combined_score, detector_mode = 0, "rules_only"
         explanation = "No usable text was extracted. The file remains unclassified."
         remediation = (
             "Use a supported format with extractable content or submit it to your security team."
@@ -393,6 +470,7 @@ async def analyze_file(
     if extracted.get("indicators"):
         verdict, severity = "suspicious", "high"
         score = min(100, max(score, 50))
+        combined_score = min(100, max(combined_score, 50))
     if extracted["status"] not in {"ok", "no_text"} and not extracted.get("indicators"):
         verdict, severity = "unknown", "unknown"
         explanation = "Extraction was incomplete; this result does not classify the file as safe."
@@ -403,6 +481,11 @@ async def analyze_file(
         verdict=verdict,
         severity=severity,
         heuristic_score=score,
+        combined_score=combined_score,
+        detector_mode=detector_mode,
+        model_version=model_version,
+        model_confidence=model_confidence,
+        model_family=model_family,
         completeness="complete" if extracted["status"] == "ok" else "partial",
         findings=[hit.model_dump() for hit in hits],
         explanation=explanation,
@@ -500,18 +583,31 @@ def metrics(
     for verdict, severity, count in rows:
         by_verdict[verdict] = by_verdict.get(verdict, 0) + count
         by_severity[severity] = by_severity.get(severity, 0) + count
+    mode_rows = db.execute(
+        select(ThreatAnalysis.detector_mode, func.count(ThreatAnalysis.id))
+        .where(ThreatAnalysis.created_at >= start)
+        .group_by(ThreatAnalysis.detector_mode)
+    ).all()
+    detector_modes = {mode: count for mode, count in mode_rows}
     return ThreatMetrics(
         window_days=days,
         total=sum(by_verdict.values()),
         by_verdict=by_verdict,
         by_severity=by_severity,
+        heuristic_only=detector_modes.get("hybrid", 0) == 0,
+        detector_modes=detector_modes,
     )
 
 
 @router.get("/admin/dashboard")
-def admin_dashboard(db: Session = Depends(get_db), _: User = Depends(threat_dashboard_access)):
-    summary = metrics(days=30, db=db, _=None)
+def admin_dashboard(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _: User = Depends(threat_dashboard_access),
+):
+    summary = metrics(days=days, db=db, _=None)
     active = _active_model_status(db)
+    classifier = get_classifier()
     return {
         "refreshed_at": datetime.now(UTC),
         "window_days": summary.window_days,
@@ -520,16 +616,22 @@ def admin_dashboard(db: Session = Depends(get_db), _: User = Depends(threat_dash
         "by_severity": summary.by_severity,
         "detection_quality": (
             active.get("metrics", {}).get("promotion_evaluation")
-            if active["state"] == "active"
+            if active["state"] == "active" and classifier.version == active.get("version")
             else None
         ),
         "source": "persisted user threat analyses",
         "note": (
-            "Analysis counts are persisted rule-based triage records. Detection-quality metrics "
-            "come only from an active model's independent promotion evaluation; they do not "
-            "measure the heuristic analyzer."
+            "Analysis counts are persisted hybrid-analyzer records. Detection-quality metrics "
+            "come only from an active artifact's independent promotion evaluation; they do not "
+            "measure rule behavior. Runtime model availability and identity are reported "
+            "separately."
         ),
         "model_status": active,
+        "detector_runtime": {
+            "state": "model_ready" if classifier.available else "rules_only",
+            "model_family": classifier.model_family,
+            "model_version": classifier.version,
+        },
     }
 
 
@@ -537,7 +639,12 @@ def _active_model_status(db: Session) -> dict:
     row = db.scalar(select(ThreatModelVersion).where(ThreatModelVersion.state == "active"))
     if row is None:
         return {"state": "rules_only", "version": None}
-    return {"state": "active", "version": row.version, "metrics": row.metrics}
+    return {
+        "state": "active",
+        "version": row.version,
+        "model_family": row.model_family or "legacy_classifier",
+        "metrics": row.metrics,
+    }
 
 
 @router.post(
@@ -747,6 +854,7 @@ def list_models(
         {
             "id": str(row.id),
             "version": row.version,
+            "model_family": row.model_family or "legacy_classifier",
             "state": row.state,
             "metrics": row.metrics,
             "created_at": row.created_at,

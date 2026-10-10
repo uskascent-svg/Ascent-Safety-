@@ -47,7 +47,7 @@ function LiveDashboard() {
         <span className="inline-flex items-center gap-2 text-[11px] text-slate-400" role="status"><span className={`h-1.5 w-1.5 rounded-full ${live === "live" ? "bg-emerald-400" : "bg-amber-400 animate-pulse"}`} />{live === "live" ? "Event stream connected" : live === "connecting" ? "Connecting event stream" : "Reconnecting event stream"}</span>
       </div>
 
-      {isAdmin && <section aria-labelledby="connect-telemetry-heading" className="glass mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div><h3 id="connect-telemetry-heading" className="text-sm font-medium text-white">Connect telemetry</h3><p className="mt-1 text-xs text-slate-500">Analyze reports from security sources you operate.</p></div><div className="flex flex-wrap gap-2"><Link href="/endpoints" className="btn-secondary !px-3 !py-2 text-xs">Endpoints</Link><Link href="/sensors" className="btn-secondary !px-3 !py-2 text-xs">Network sensors</Link></div></section>}
+      {isAdmin && <section aria-labelledby="connect-telemetry-heading" className="glass mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div><h3 id="connect-telemetry-heading" className="text-sm font-medium text-white">Connect endpoint telemetry</h3><p className="mt-1 text-xs text-slate-500">Analyze reports from endpoint sources you operate.</p></div><div className="flex flex-wrap gap-2"><Link href="/endpoints" className="btn-secondary !px-3 !py-2 text-xs">Endpoints</Link></div></section>}
 
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(280px,0.75fr)]">

@@ -58,9 +58,6 @@ function Panel() {
               <Link href="/endpoints" className="text-accent-strong hover:underline">
                 Manage endpoints
               </Link>
-              <Link href="/sensors" className="text-accent-strong hover:underline">
-                Manage sensors
-              </Link>
             </>
           )}
           <span className="flex items-center gap-2" role="status">

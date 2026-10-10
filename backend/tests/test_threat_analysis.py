@@ -34,6 +34,49 @@ def test_analyze_explains_rules_and_does_not_persist_submitted_content(client, s
         assert audit.details["analysis_id"] == result["id"]
 
 
+def test_threat_analyzer_uses_loaded_model_with_rules_and_persists_provenance(
+    client, session_factory, monkeypatch
+):
+    from app.api import threat_analysis
+    from app.detection.phishing.ml import MlResult
+
+    class LoadedModel:
+        available = True
+
+        @staticmethod
+        def predict(_text):
+            return MlResult(
+                probability=0.91,
+                model_version="tfidf-mlp-test-v1",
+                model_family="tfidf_mlp",
+                top_terms=[],
+            )
+
+    monkeypatch.setattr(threat_analysis, "get_classifier", lambda: LoadedModel())
+    headers = auth(client, "hybrid-analyzer@example.com")
+    content = "The routine weekly project agenda includes notes and a team meeting schedule."
+    response = client.post(
+        "/api/threat-analysis/analyze",
+        json={"text": content, "input_kind": "message"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["verdict"] == "suspicious"
+    assert result["detector_mode"] == "hybrid"
+    assert result["score_type"] == "hybrid"
+    assert result["model_version"] == "tfidf-mlp-test-v1"
+    assert result["model_family"] == "tfidf_mlp"
+    assert result["model_confidence"] == pytest.approx(0.91)
+    assert result["heuristic_score"] == 0
+    assert result["combined_score"] == 27
+    assert any(finding["detector"] == "tfidf_mlp" for finding in result["findings"])
+    with session_factory() as db:
+        row = db.get(ThreatAnalysis, uuid.UUID(result["id"]))
+        assert row.detector_mode == "hybrid"
+        assert row.model_version == "tfidf-mlp-test-v1"
+
+
 def test_analysis_requires_authentication_and_valid_input(client):
     assert client.post("/api/threat-analysis/analyze", json={"text": MESSAGE}).status_code == 401
     headers = auth(client)
@@ -100,6 +143,17 @@ def test_metrics_are_admin_only_and_derived_from_saved_rows(client, promote):
     assert dashboard.json()["total"] == 1
     assert dashboard.json()["refreshed_at"]
     assert dashboard.json()["model_status"]["state"] == "rules_only"
+    assert "model availability and identity are reported separately" in dashboard.json()["note"]
+    seven_day_dashboard = client.get(
+        "/api/threat-analysis/admin/dashboard?days=7", headers=admin
+    )
+    assert seven_day_dashboard.status_code == 200
+    assert seven_day_dashboard.json()["window_days"] == 7
+    assert seven_day_dashboard.json()["total"] == 1
+    invalid_window = client.get(
+        "/api/threat-analysis/admin/dashboard?days=366", headers=admin
+    )
+    assert invalid_window.status_code == 422
 
 
 def test_url_analysis_never_fetches_and_rejects_invalid_url(client):

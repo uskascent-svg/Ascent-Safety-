@@ -21,6 +21,12 @@ type Result = {
   verdict: string;
   severity: string;
   heuristic_score: number;
+  score_type: "heuristic" | "hybrid";
+  detector_mode: "rules_only" | "hybrid";
+  model_version: string | null;
+  model_family: string | null;
+  model_confidence: number | null;
+  combined_score: number | null;
   completeness: string;
   input_kind: string;
   findings: Finding[];
@@ -84,8 +90,8 @@ function AnalyzerContent() {
   return <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div><p className="eyebrow">User security workspace</p><h1 className="mt-2 text-2xl font-semibold text-white">Threat Analyzer</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Inspect message text, one URL, or extracted document text with explainable local rules. URLs are never visited. Submitted content is analyzed in memory and not stored.</p></div>
-      <span className="rounded-full border border-amber-300/15 bg-amber-300/[0.04] px-3 py-1.5 text-xs text-amber-100">Heuristic triage · no validated ML model</span>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Inspect message text, one URL, or extracted document text with explainable rules and an optional independently evaluated neural model. URLs are never visited. Submitted content is analyzed in memory and not stored.</p></div>
+      <span className="rounded-full border border-amber-300/15 bg-amber-300/[0.04] px-3 py-1.5 text-xs text-amber-100">Rules always active · model used only when ready</span>
     </div>
     <div className="grid gap-5 lg:grid-cols-12">
       <form className="glass space-y-4 p-5 lg:col-span-6" onSubmit={(event) => { event.preventDefault(); analyze.mutate(); }}>
@@ -109,10 +115,11 @@ function AnalyzerContent() {
       </form>
       <section className="glass min-h-80 p-5 lg:col-span-6" aria-live="polite" aria-label="Analysis result">
         <h2 className="border-b border-white/[0.06] pb-3 text-sm font-semibold text-white">Assessment</h2>
-        {analyze.isPending && <p className="py-10 text-sm text-slate-400">Applying configured text and URL rules…</p>}
+        {analyze.isPending && <p className="py-10 text-sm text-slate-400">Applying configured rules and checking the approved model…</p>}
         {!analyze.isPending && !result && <p className="py-10 text-sm text-slate-500">Your assessment will appear here. Unsupported file uploads are not enabled.</p>}
         {result && <div className="pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-3"><span className="rounded-full border border-accent/20 bg-accent/[0.05] px-3 py-1 text-xs uppercase text-accent-strong">{result.verdict}</span><span className="text-xs text-slate-500">{result.severity} severity · heuristic score {result.heuristic_score}/100</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><span className="rounded-full border border-accent/20 bg-accent/[0.05] px-3 py-1 text-xs uppercase text-accent-strong">{result.verdict}</span><span className="text-xs text-slate-500">{result.severity} severity · rules score {result.heuristic_score}/100{result.combined_score !== null && result.detector_mode === "hybrid" ? ` · combined score ${result.combined_score}/100` : ""}</span></div>
+          <p className="mt-2 text-xs text-slate-500">{result.detector_mode === "hybrid" && result.model_confidence !== null ? `${result.model_family ?? "Machine-learning model"} score ${(result.model_confidence * 100).toFixed(1)}% · version ${result.model_version ?? "unknown"}. This score is not a calibrated probability.` : "Machine-learning model unavailable for this analysis; rules-only fallback was used."}</p>
           <p className="mt-4 text-sm text-slate-300">{result.explanation}</p>
           <p className="mt-2 text-xs text-slate-500">Analysis completeness: {result.completeness}. Result ID: <span className="font-mono">{result.id}</span></p>
           {result.extraction_status && result.extraction_status !== "not_applicable" && <div className="mt-3 rounded-lg border border-white/[0.06] p-3 text-xs text-slate-400"><p>Extraction: {result.extraction_status}</p>{(result.extraction_notes ?? []).map((note) => <p className="mt-1" key={note}>{note}</p>)}</div>}

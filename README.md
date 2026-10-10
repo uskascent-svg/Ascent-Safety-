@@ -93,7 +93,8 @@ Training stays unavailable until operators configure that Fernet key, a secret
 `THREAT_ANALYSIS_MODEL_HMAC_KEY` (at least 32 characters), `THREAT_ANALYSIS_MODEL_DIR` on persistent
 storage, and `THREAT_ANALYSIS_INDEPENDENT_TEST_SET` as a separate UTF-8 JSONL dataset with `text` and
 `label` (`benign` or `malicious`) fields. The evaluation set needs 20 unique examples and at least 10
-per class; training additionally requires three examples per class. Thresholds are fixed in code,
+per class; MLP training additionally requires ten approved samples per class. The fixed malicious
+score cutoff is shared by training evaluation and live analysis. Thresholds are fixed in code,
 artifacts are SHA-256/HMAC verified before load, and promotion re-evaluates against the configured
 test set and applies a non-regression gate versus the current active model. Treat the test set as
 controlled, access-restricted evaluation data: it must not overlap with user training samples. Back up
@@ -208,15 +209,17 @@ docker compose exec -T db pg_dump -U ascent -d ascent -Fc > ascent-backup.dump
 Restore only after stopping application writers and confirming the target database. Keep the backup
 outside the repository and test restoration on a separate database before relying on it.
 
-The threat-analysis integration adds Alembic revisions `0013` and `0014`. Revision `0013` creates
+The threat-analysis integration adds Alembic revisions `0013`–`0015`. Revision `0013` creates
 analysis, feedback, training-job, and model-version tables; `0014` adds the scoped monitoring,
-reviewer, and model-operator roles. The normal deployment startup migrates from `0012` to `0014`; for
-a manual rollout, first take and verify a PostgreSQL backup, then run
+reviewer, and model-operator roles; `0015` adds per-analysis detector provenance and model-family
+metadata. The normal deployment startup migrates to `0015`; for a manual rollout, first take and
+verify a PostgreSQL backup, then run
 `docker compose run --rm migrate alembic upgrade head` (or `cd backend; alembic upgrade head` in the
 configured virtual environment). Deploy the API and web images after the migration succeeds. To roll
 back application code, stop API writers and restore the pre-upgrade database backup; the downgrade
 removes the new `threat_analyses` table and therefore deletes analyses created after migration.
-Downgrading `0014` removes scoped-role records and their assignments. Never
+Downgrading `0014` removes scoped-role records and their assignments; downgrading `0015` removes
+hybrid provenance fields. Never
 run a destructive downgrade against the only production copy. Existing records and migration history
 are otherwise unchanged.
 
@@ -256,8 +259,11 @@ CI applies migrations and probes API readiness against PostgreSQL before running
 - Phishing, endpoint, network, and reputation checks are indicators for analyst review. They are not
   substitutes for a full EDR, SIEM, packet-capture sensor, incident response process, or security
   guarantee.
-- No dataset or trained ML artifact is bundled. Phishing analysis runs rules-only until an operator
-  trains and configures a reviewed model; see [ML setup](ml/README.md).
+- No reviewed dataset or trained neural artifact is bundled. Threat Analyzer always applies its
+  explainable phishing/text rules and uses the signed TF-IDF + MLP model only when an operator has
+  trained, independently evaluated, and promoted one. User feedback is never training data until an
+  authorized reviewer approves it and the user explicitly opted in. Until then analysis reports a
+  rules-only fallback; see [ML setup](ml/README.md) and the threat-learning verification notes.
 - Events, alerts, summaries, and map locations are API/database-backed. Empty states mean no matching
   data has been received.
 - User reports do not accept uploaded files until secure private object storage and malware scanning

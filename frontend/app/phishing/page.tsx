@@ -1,7 +1,7 @@
-import PhishingLab from "@/components/PhishingLab";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Phishing Lab — Ascent Safety" };
+export const metadata = { title: "Threat Analyzer — Ascent Safety" };
 
 export default function PhishingPage() {
-  return <PhishingLab />;
+  redirect("/threat-analyzer");
 }

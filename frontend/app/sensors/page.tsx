@@ -1,7 +1,5 @@
-import SensorsAdmin from "@/components/SensorsAdmin";
-
-export const metadata = { title: "Network sensors — Ascent Safety" };
+import { redirect } from "next/navigation";
 
 export default function SensorsPage() {
-  return <SensorsAdmin />;
+  redirect("/security-panel");
 }
