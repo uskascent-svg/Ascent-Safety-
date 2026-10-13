@@ -1,0 +1,31 @@
+name: Render service health and keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-keepalive
+  cancel-in-progress: false
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check frontend and prevent idle spin-down
+        run: |
+          set -eu
+          curl --fail --silent --show-error --location --max-time 120 --retry 2 --retry-delay 5 https://ascent-safety-web.onrender.com/ -o /dev/null
+          echo "Frontend returned a successful HTTP response."
+
+      - name: Check API readiness and prevent idle spin-down
+        run: |
+          set -eu
+          curl --fail --silent --show-error --location --max-time 120 --retry 2 --retry-delay 5 https://ascent-safety-api.onrender.com/api/health/ready
+          echo
+          echo "API readiness endpoint returned a successful HTTP response."
