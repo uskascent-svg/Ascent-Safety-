@@ -2,7 +2,7 @@
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 
 from fastapi import Request
@@ -143,6 +143,23 @@ def process_batch(
 
     created = duplicates = 0
     for f in findings:
+        # Event-time buckets alone are boundary-sensitive: two observations a minute
+        # apart can land in adjacent buckets. Deduplicate the same sensor finding by
+        # code + evidence inside a symmetric window, preserving distinct hosts/evidence.
+        window_start = f.occurred_at - timedelta(seconds=DEDUPE_BUCKET_SECONDS)
+        window_end = f.occurred_at + timedelta(seconds=DEDUPE_BUCKET_SECONDS)
+        recent_findings = db.scalars(
+            select(NetworkFinding).where(
+                NetworkFinding.sensor_id == sensor.id,
+                NetworkFinding.code == f.code,
+                NetworkFinding.occurred_at >= window_start,
+                NetworkFinding.occurred_at <= window_end,
+            )
+        ).all()
+        if any(row.evidence == f.evidence for row in recent_findings):
+            duplicates += 1
+            continue
+
         payload = SecurityEventCreate(
             source=f"sensor:{sensor.name}",
             external_id=_dedupe_key(sensor, f),
