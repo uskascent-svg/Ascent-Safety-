@@ -16,6 +16,9 @@ on:
     branches: [main]
     paths:
       - "backend/app/detection/core_rules.py"
+      - "backend/app/services/core_rule_adapter.py"
+      - "backend/app/services/event_ingest.py"
+      - "backend/tests/test_core_rule_adapter.py"
       - "backend/rules/core/**"
       - "backend/core_rule_tests/**"
       - "backend/tests/test_core_rules.py"
