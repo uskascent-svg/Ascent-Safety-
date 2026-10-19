@@ -11,6 +11,7 @@ from app.models import ACTIVE_STATUSES, Alert, Role, SecurityEvent, User, UserNo
 from app.schemas.security import SecurityEventCreate, SecurityEventOut
 from app.services import audit
 from app.services.broker import broker
+from app.services.core_rule_adapter import evaluate_security_event
 
 SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
@@ -43,11 +44,23 @@ def store_event(
     except IntegrityError:
         db.rollback()
         raise DuplicateEvent from None
+    # Shadow evaluation only: no rule changes severity, creates an alert, or blocks ingest.
+    # The adapter uses existing persisted fields and deliberately does not infer event.action.
+    rule_evaluation = evaluate_security_event(event)
     audit.record(
         db,
         "security_event.ingest",
         request,
-        details={"event_id": str(event.id), "source": event.source, **(audit_details or {})},
+        details={
+            "event_id": str(event.id),
+            "source": event.source,
+            "core_rule_evaluation": {
+                "status": rule_evaluation["status"],
+                "match_count": rule_evaluation["match_count"],
+                "rule_ids": [match["rule_id"] for match in rule_evaluation["matches"]],
+            },
+            **(audit_details or {}),
+        },
     )
     _maybe_alert(db, event, request)
     return event
