@@ -1,6 +1,13 @@
 import pytest
 
-from app.detection.core_rules import Rule, evaluate_rule, load_rules, normalize_event
+from app.detection.core_rules import (
+    MAX_RULES,
+    Rule,
+    evaluate_catalog,
+    evaluate_rule,
+    load_rules,
+    normalize_event,
+)
 
 
 def production_rule(**overrides):
@@ -94,3 +101,43 @@ def test_missing_fields_fail_closed():
 def test_missing_event_fields_do_not_match():
     rule = production_rule()
     assert evaluate_rule(rule, {"source": "auth", "event": {}}) is None
+
+
+
+def test_catalog_evaluates_ten_thousand_rules_with_source_filtering():
+    rows = [
+        {
+            "id": f"AS-SCALE-{i:05d}",
+            "title": f"Rule candidate {i}",
+            "source": "auth" if i == 0 else "dns",
+            "severity": "high",
+            "confidence": 0.8,
+            "conditions": [
+                {"field": "event.action", "op": "eq", "value": "login_failed"}
+            ],
+            "lifecycle": "production" if i == 0 else "draft",
+            "enabled": i == 0,
+        }
+        for i in range(MAX_RULES)
+    ]
+
+    catalog = load_rules(rows)
+    matches = evaluate_catalog(
+        catalog, {"source": "auth", "event": {"action": "login_failed"}}
+    )
+
+    assert len(catalog) == MAX_RULES
+    assert [match["rule_id"] for match in matches] == ["AS-SCALE-00000"]
+
+
+def test_catalog_rejects_more_than_ten_thousand_rules():
+    row = {
+        "id": "AS-SCALE-00000",
+        "title": "Rule candidate",
+        "source": "auth",
+        "severity": "low",
+        "confidence": 0.5,
+        "conditions": [{"field": "event.action", "op": "eq", "value": "test"}],
+    }
+    with pytest.raises(ValueError, match="10000-rule limit"):
+        load_rules([row] * (MAX_RULES + 1))
