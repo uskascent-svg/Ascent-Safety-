@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from app.detection.core_rules import Rule, evaluate_rule, load_catalog
@@ -31,3 +33,21 @@ def test_invalid_operator_is_rejected():
             "severity": "low", "confidence": 0.5,
             "conditions": [{"field": "event.action", "op": "eval", "value": "x"}],
         })
+
+
+
+def test_every_catalog_candidate_has_a_matching_and_nonmatching_fixture():
+    """Schema/dispatch smoke test only; not proof of detection quality."""
+    for draft in load_catalog().values():
+        rule = replace(draft, lifecycle="production", enabled=True)
+        action = rule.conditions[0]["value"]
+        matching = {
+            "source": rule.source,
+            "event": {"action": action},
+        }
+        nonmatching = {
+            "source": rule.source,
+            "event": {"action": "__benign_control_event__"},
+        }
+        assert evaluate_rule(rule, matching) is not None, rule.id
+        assert evaluate_rule(rule, nonmatching) is None, rule.id
