@@ -56,7 +56,9 @@ class Rule:
                     raise ValueError("exists operator requires a boolean value")
             elif "value" not in condition:
                 raise ValueError("condition value is required")
-            if condition["op"] == "in" and not isinstance(condition["value"], (list, tuple, set, str)):
+            if condition["op"] == "in" and not isinstance(
+                condition["value"], (list, tuple, set, str)
+            ):
                 raise ValueError("in operator value must be a list, tuple, set or string")
 
     @classmethod
