@@ -1,38 +1,19 @@
-# Phase 1 core detection foundation
+# Core detection foundation
 
-This package is an additive, dependency-free foundation for the existing ASCENT SAFETY FastAPI application. It does not replace the current phishing, file, or threat-analysis routes.
+Additive to the existing FastAPI application. Existing phishing/file analysis, authentication, database and audit integrations remain authoritative.
 
-## Scope and assumptions
+## Catalog status
 
-- Existing FastAPI, SQLAlchemy/PostgreSQL, authentication and audit boundaries remain authoritative.
-- Rules are data-driven and disabled/draft by default. The evaluator only executes rules explicitly marked both `production` and `enabled`.
-- Events use an ECS-inspired shape; normalization preserves supplied data and does not fabricate host/user/asset context.
-- Conditions are ANDed and restricted to a small typed operator set. Untrusted rule expressions are never evaluated as Python.
-- This first commit provides the engine primitive and tests; it does not claim 300 production-validated rules, Kafka throughput, distributed sharding, or production deployment.
+`core_rules.json` contains 300 unique disabled draft candidates across six source families. They are not validated production detections and must not be enabled as-is. They have no guessed ATT&CK mappings or test dates. Add source-specific mappings, positive and benign-negative fixtures, false-positive measurements and analyst review before promotion.
 
-## Rule metadata
+## Safety
 
-Every rule should include: `id`, `title`, `source`, `severity`, `confidence`, `conditions`, ATT&CK technique IDs, FP notes, owner, last-tested date, playbook link, lifecycle, and enabled state. Unknown metadata should be explicitly null or marked pending review, not guessed.
+Rules are declarative data; no arbitrary expression is executed. Only rules explicitly marked both `production` and `enabled` can fire. Invalid operators, malformed field paths, duplicate IDs and invalid catalog schemas are rejected. Normalization does not invent missing context.
 
-## Lifecycle
+## Tests
 
-`draft -> test -> shadow -> production -> review -> retired`
+From `backend/`, run `python -m pytest -q tests/test_core_rules.py tests/test_core_catalog.py` and `ruff check app/detection/core_rules.py tests/test_core_rules.py tests/test_core_catalog.py`.
 
-Only reviewed production rules may be enabled. Promotion and rule changes must be authorized, tested, audited, and version-controlled. This module intentionally does not implement an API endpoint that changes lifecycle.
+## Remaining Phase 1 work
 
-## Local verification
-
-From `backend/`:
-
-```bash
-pytest -q tests/test_core_rules.py
-ruff check app/detection/core_rules.py tests/test_core_rules.py
-```
-
-## Phase 1 remaining work
-
-1. Curate/import 300 source-attributed core rules and add positive/negative fixtures per rule.
-2. Add DB migrations and authenticated read-only catalog endpoints after reviewing existing models/routes.
-3. Add CI syntax, duplicate, fixture and performance gates.
-4. Integrate normalized events into existing alert/audit flow without duplicating authentication or model registry.
-5. Run the full backend/frontend suites and Compose smoke tests in a real checkout before merge.
+Integrate the catalog into existing alert/event flow and existing database/auth/audit controls. Add per-rule fixtures and quality gates, then run full backend/frontend tests, migrations, Compose smoke tests and deployment/capacity validation. No production rule is enabled by this foundation.
