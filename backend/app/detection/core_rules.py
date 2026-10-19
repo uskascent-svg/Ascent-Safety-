@@ -60,7 +60,7 @@ class Rule:
                 raise ValueError("in operator value must be a list, tuple, set or string")
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "Rule":
+    def from_dict(cls, raw: dict[str, Any]) -> Rule:
         if not isinstance(raw, dict):
             raise ValueError("each rule must be an object")
         required = ("id", "title", "source", "severity", "confidence", "conditions")
