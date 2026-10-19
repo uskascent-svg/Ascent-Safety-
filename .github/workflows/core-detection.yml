@@ -5,6 +5,7 @@ on:
     paths:
       - "backend/app/detection/core_rules.py"
       - "backend/rules/core/**"
+      - "backend/core_rule_tests/**"
       - "backend/tests/test_core_rules.py"
       - "backend/tests/test_core_catalog.py"
       - ".github/workflows/core-detection.yml"
@@ -13,7 +14,9 @@ on:
     paths:
       - "backend/app/detection/core_rules.py"
       - "backend/rules/core/**"
+      - "backend/core_rule_tests/**"
       - "backend/tests/test_core_rules.py"
+      - "backend/tests/test_core_catalog.py"
       - ".github/workflows/core-detection.yml"
 
 permissions:
@@ -30,9 +33,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt pytest ruff
-      - run: python -m pytest -q tests/test_core_rules.py tests/test_core_catalog.py
-      - run: ruff check app/detection/core_rules.py tests/test_core_rules.py
+      - run: python -m pip install --upgrade pip pytest ruff
+      - run: python -m pytest -q core_rule_tests/test_core_rules_standalone.py
+      - run: ruff check app/detection/core_rules.py core_rule_tests/test_core_rules_standalone.py
