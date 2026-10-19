@@ -13,6 +13,7 @@ from typing import Any
 SEVERITIES = {"low", "medium", "high", "critical"}
 LIFECYCLE = {"draft", "test", "shadow", "production", "review", "retired"}
 OPERATORS = {"eq", "ne", "contains", "in", "gte", "gt", "lte", "lt", "exists"}
+MAX_RULES = 10_000
 
 
 @dataclass(frozen=True)
@@ -143,9 +144,7 @@ def _matches_condition(event: dict[str, Any], condition: dict[str, Any]) -> bool
     return False
 
 
-def evaluate_rule(rule: Rule, event: dict[str, Any]) -> dict[str, Any] | None:
-    """Match only explicitly enabled production rules; conditions are ANDed."""
-    event = normalize_event(event)
+def _evaluate_normalized_rule(rule: Rule, event: dict[str, Any]) -> dict[str, Any] | None:
     if not rule.enabled or rule.lifecycle != "production":
         return None
     if rule.source != "*" and event.get("source") != rule.source:
@@ -159,10 +158,31 @@ def evaluate_rule(rule: Rule, event: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def evaluate_rule(rule: Rule, event: dict[str, Any]) -> dict[str, Any] | None:
+    """Match one rule; only explicitly enabled production rules can fire."""
+    return _evaluate_normalized_rule(rule, normalize_event(event))
+
+
+def evaluate_catalog(rules: dict[str, Rule], event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Evaluate up to 10,000 rules with one normalization and source-family filtering.
+
+    Draft/test/shadow/review/retired rules never fire. Wildcard rules are always included.
+    """
+    normalized = normalize_event(event)
+    source = normalized.get("source")
+    candidates = (rule for rule in rules.values() if rule.source in {"*", source})
+    return [
+        match for rule in candidates
+        if (match := _evaluate_normalized_rule(rule, normalized)) is not None
+    ]
+
+
 def load_rules(rows: list[dict[str, Any]]) -> dict[str, Rule]:
     """Validate a catalog and reject duplicate IDs rather than silently overriding."""
     if not isinstance(rows, list):
         raise ValueError("rule catalog must be a list")
+    if len(rows) > MAX_RULES:
+        raise ValueError(f"rule catalog exceeds the {MAX_RULES}-rule limit")
     result: dict[str, Rule] = {}
     for row in rows:
         rule = Rule.from_dict(row)
