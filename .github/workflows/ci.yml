@@ -86,5 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ./scripts/init-env.sh
+      - name: Initialize local environment
+        shell: bash
+        run: bash ./scripts/init-env.sh
       - run: docker compose build api web
