@@ -310,4 +310,11 @@ def test_ingest_is_audited(client, ingest, session_factory):
     ev = ingest()
     with session_factory() as db:
         rows = list(db.scalars(select(AuditLog).where(AuditLog.action == "security_event.ingest")))
-    assert len(rows) == 1 and rows[0].details["event_id"] == ev["id"]
+    assert len(rows) == 1
+    details = rows[0].details
+    assert details["event_id"] == ev["id"]
+    assert details["core_rule_evaluation"] == {
+        "status": "evaluated",
+        "match_count": 0,
+        "rule_ids": [],
+    }
