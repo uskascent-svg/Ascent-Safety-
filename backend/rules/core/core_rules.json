@@ -2,7 +2,7 @@
   "schema_version": 1,
   "catalog_name": "ASCENT SAFETY Core Detection Candidates",
   "catalog_version": "0.1.0",
-  "count": 306,
+  "count": 300,
   "notice": "These 300 records are disabled draft candidates, not validated production detections. Source adapters must emit the documented canonical event.action values. Do not promote without positive/negative fixtures, ATT&CK review, FP measurement and analyst approval.",
   "rules": [
     {
@@ -6295,132 +6295,6 @@
           "field": "event.action",
           "op": "eq",
           "value": "role_assumption_anomaly"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0301",
-      "title": "DNS: Control-plane activity in unusual region",
-      "source": "dns",
-      "severity": "medium",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "region_usage_anomaly"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0302",
-      "title": "DNS: Potential DNS tunneling pattern",
-      "source": "dns",
-      "severity": "high",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "dns_tunneling_pattern"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0303",
-      "title": "DNS: High-entropy DNS subdomain",
-      "source": "dns",
-      "severity": "medium",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "high_entropy_subdomain"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0304",
-      "title": "DNS: Query to newly registered domain",
-      "source": "dns",
-      "severity": "medium",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "newly_registered_domain"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0305",
-      "title": "DNS: Unusual TXT record query burst",
-      "source": "dns",
-      "severity": "low",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "dns_txt_burst"
-        }
-      ],
-      "mitre_techniques": [],
-      "fp_notes": "Draft candidate only. Map to real source telemetry, add positive and benign-negative fixtures, validate ATT&CK mapping, and measure false positives before promotion.",
-      "owner": "ascent-detection",
-      "last_tested": null,
-      "playbook": null,
-      "lifecycle": "draft",
-      "enabled": false
-    },
-    {
-      "id": "AS-CORE-0306",
-      "title": "DNS: Domain-generation-like query pattern",
-      "source": "dns",
-      "severity": "high",
-      "confidence": 0.5,
-      "conditions": [
-        {
-          "field": "event.action",
-          "op": "eq",
-          "value": "domain_generation_pattern"
         }
       ],
       "mitre_techniques": [],
