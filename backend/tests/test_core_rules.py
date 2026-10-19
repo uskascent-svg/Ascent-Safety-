@@ -41,8 +41,18 @@ def test_rule_matches_expected_event():
 
 def test_rule_does_not_match_other_source_or_low_count():
     rule = production_rule()
-    assert evaluate_rule(rule, {"source": "web", "event": {"action": "login_failed", "count": 8}}) is None
-    assert evaluate_rule(rule, {"source": "auth", "event": {"action": "login_failed", "count": 2}}) is None
+    assert (
+        evaluate_rule(
+            rule, {"source": "web", "event": {"action": "login_failed", "count": 8}}
+        )
+        is None
+    )
+    assert (
+        evaluate_rule(
+            rule, {"source": "auth", "event": {"action": "login_failed", "count": 2}}
+        )
+        is None
+    )
 
 
 def test_draft_rules_never_fire():
