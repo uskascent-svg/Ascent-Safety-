@@ -10,7 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from app.detection.core_rules import Rule, evaluate_rule, load_catalog
+from app.detection.core_rules import Rule, evaluate_catalog, load_catalog
 
 
 @lru_cache(maxsize=1)
@@ -60,11 +60,7 @@ def evaluate_security_event(event: Any) -> dict[str, Any]:
             "reason": type(exc).__name__,
         }
 
-    matches = [
-        match
-        for rule in catalog.values()
-        if (match := evaluate_rule(rule, normalized)) is not None
-    ]
+    matches = evaluate_catalog(catalog, normalized)
     return {
         "status": "evaluated",
         "match_count": len(matches),
