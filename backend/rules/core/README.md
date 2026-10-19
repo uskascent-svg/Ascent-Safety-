@@ -1,5 +1,12 @@
 # Core detection foundation
 
+## Scale and ML integration
+
+The evaluator accepts catalogs up to 10,000 unique declarative rules and normalizes each event once, filtering candidates by exact source family plus wildcard rules. The 10,000 limit is a tested capacity limit, not a claim that 10,000 validated detections ship enabled. The checked-in catalog still contains 300 disabled draft candidates. Do not inflate counts with generated placeholder rules or enable candidates without telemetry mappings and quality evidence.
+
+The existing threat-analysis path includes a TF-IDF classifier and a controlled feedback-training workflow: encrypted opt-in samples, reviewer approval, deduplication, independent holdout evaluation, signed model artifacts, candidate/active states, operator promotion, audit records and rollback. Training is intentionally unavailable unless the encryption key, model-signing key and independent labeled test set are configured. It is not online self-modification: analyst feedback must be reviewed and a candidate must pass evaluation before promotion.
+
+
 Additive to the existing FastAPI application. Existing phishing/file analysis, authentication, database and audit integrations remain authoritative.
 
 ## Catalog status
@@ -23,3 +30,15 @@ The adapter maps only fields already present in `SecurityEvent`. It deliberately
 ## Remaining Phase 1 work
 
 Add real source-specific adapters that supply verified action/context, per-rule positive and benign-negative fixtures, analyst-reviewed rule promotion and alert persistence for approved production detections. Then run full backend/frontend tests, migrations, Compose smoke tests and deployment/capacity validation. No production rule is enabled by this foundation.
+
+
+## Operating the feedback-trained model
+
+1. Configure `THREAT_ANALYSIS_DATA_KEY`, `THREAT_ANALYSIS_MODEL_HMAC_KEY`, `THREAT_ANALYSIS_INDEPENDENT_TEST_SET`, and a persistent `THREAT_ANALYSIS_MODEL_DIR` using deployment secrets and a protected volume.
+2. Collect feedback with explicit opt-in for training samples. Do not upload sensitive samples unless the data policy permits it.
+3. Have an authorized reviewer approve labels after independent review. Conflicted or duplicate samples are excluded by the trainer.
+4. Run the controlled training workflow and inspect precision, recall, F1, false-positive rate, false-negative rate, sample counts and candidate artifact integrity.
+5. Promote only through the authorized model-operator endpoint; monitor outcomes and use the audited rollback path if quality regresses.
+6. Verify model artifact and evaluation-set backups before production rollout.
+
+Never train directly on unreviewed user feedback or treat model confidence as proof that a sample is malicious.
