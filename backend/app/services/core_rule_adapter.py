@@ -8,7 +8,6 @@ controls are explicitly implemented.
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from app.detection.core_rules import Rule, evaluate_rule, load_catalog
