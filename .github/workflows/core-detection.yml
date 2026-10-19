@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "backend/app/detection/core_rules.py"
+      - "backend/app/services/core_rule_adapter.py"
+      - "backend/app/services/event_ingest.py"
+      - "backend/tests/test_core_rule_adapter.py"
       - "backend/rules/core/**"
       - "backend/core_rule_tests/**"
       - "backend/tests/test_core_rules.py"
@@ -35,4 +38,4 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip pytest ruff
       - run: python -m pytest -q core_rule_tests/test_core_rules_standalone.py
-      - run: ruff check app/detection/core_rules.py core_rule_tests/test_core_rules_standalone.py --ignore S101
+      - run: ruff check app/detection/core_rules.py app/services/core_rule_adapter.py tests/test_core_rule_adapter.py core_rule_tests/test_core_rules_standalone.py --ignore S101
