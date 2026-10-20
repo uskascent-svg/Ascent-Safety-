@@ -6376,7 +6376,7 @@
         {
           "field": "persistence.target",
           "op": "contains",
-          "value": "\\AppData\\Local\\Temp\\"
+          "value": "\\appdata\\local\\temp\\"
         },
         {
           "field": "persistence.target",
@@ -6403,7 +6403,7 @@
           "source": "endpoint",
           "persistence": {
             "mechanism": "scheduled_task",
-            "target": "C:\\Users\\user\\AppData\\Local\\Temp\\powershell-update.ps1",
+            "target": "c:\\users\\user\\appdata\\local\\temp\\powershell-update.ps1",
             "name": "Updater"
           }
         }
@@ -6413,7 +6413,7 @@
           "source": "endpoint",
           "persistence": {
             "mechanism": "scheduled_task",
-            "target": "C:\\Windows\\System32\\cleanmgr.exe",
+            "target": "c:\\windows\\system32\\cleanmgr.exe",
             "name": "Disk Cleanup"
           }
         }
