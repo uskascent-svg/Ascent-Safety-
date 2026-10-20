@@ -49,7 +49,14 @@ def test_report_counts_catalog_without_claiming_capacity_is_coverage(tmp_path):
     assert report["enabled_production_rule_count"] == 0
     assert report["counts_by_lifecycle"] == {"draft": 1}
     assert report["source_family_counts"] == {"auth": 1}
-    assert report["promotion_ready_by_catalog_evidence_count"] == 0
+    assert report["promotion_ready_by_catalog_evidence_count"] == 3
+    assert report["promotion_evidence_counts"] == {
+        "with_mitre_mapping": 3,
+        "with_negative_fixtures": 3,
+        "with_positive_fixtures": 3,
+        "with_provenance": 3,
+        "with_valid_test_date": 3,
+    }
     assert report["automatic_promotion"] is False
 
 
@@ -87,15 +94,15 @@ def test_report_rejects_count_mismatch(tmp_path):
 def test_repository_catalog_report_reflects_actual_catalog():
     report = build_catalog_report()
 
-    assert report["catalog_count"] == 300
-    assert report["declared_count"] == 300
-    assert report["counts_by_lifecycle"] == {"draft": 300}
+    assert report["catalog_count"] == 303
+    assert report["declared_count"] == 303
+    assert report["counts_by_lifecycle"] == {"draft": 303}
     assert report["enabled_production_rule_count"] == 0
     assert report["source_family_counts"] == {
         "auth": 50,
         "cloud": 50,
         "dns": 50,
-        "endpoint": 50,
+        "endpoint": 53,
         "network": 50,
         "web": 50,
     }
