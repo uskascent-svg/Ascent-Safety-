@@ -2,7 +2,7 @@
 
 ## Scale and ML integration
 
-The evaluator accepts catalogs up to 10,000 unique declarative rules and normalizes each event once, filtering candidates by exact source family plus wildcard rules. The 10,000 limit is a tested capacity limit, not a claim that 10,000 validated detections ship enabled. The checked-in catalog still contains 300 disabled draft candidates. Do not inflate counts with generated placeholder rules or enable candidates without telemetry mappings and quality evidence.
+The evaluator accepts catalogs up to 10,000 unique declarative rules and normalizes each event once, filtering candidates by exact source family plus wildcard rules. The 10,000 limit is a tested capacity limit, not a claim that 10,000 validated detections ship enabled. The checked-in catalog now contains 303 disabled draft candidates, including three provenance-linked Windows endpoint candidates. Do not inflate counts with generated placeholder rules or enable candidates without telemetry mappings and quality evidence.
 
 The existing threat-analysis path includes a TF-IDF classifier and a controlled feedback-training workflow: encrypted opt-in samples, reviewer approval, deduplication, independent holdout evaluation, signed model artifacts, candidate/active states, operator promotion, audit records and rollback. Training is intentionally unavailable unless the encryption key, model-signing key and independent labeled test set are configured. It is not online self-modification: analyst feedback must be reviewed and a candidate must pass evaluation before promotion.
 
@@ -55,4 +55,24 @@ This gate is deliberately advisory and non-mutating: it never changes `lifecycle
 
 From `backend/`, run `python -m app.detection.catalog_health` to emit a machine-readable JSON report. It validates the same catalog schema used by the evaluator and reports the actual catalog count, capacity remaining, lifecycle/source-family counts, enabled production rules, and stored promotion-evidence gaps. The report is diagnostic only: available capacity is not detection coverage, evidence presence is not proof of fixture quality, and no lifecycle state is changed. Current checked-in catalog evidence must be measured from the file at the time the report runs; do not copy example counts into dashboards as constants.
 
-The catalog is intentionally not padded from 300 to 10,000 with cloned or synthetic placeholder detections. The evaluator is tested to accept up to 10,000 unique rules, but filling that capacity with defensible detections requires verified source telemetry, source provenance, meaningful positive/negative fixtures, ATT&CK review, false-positive measurement and analyst approval.
+The catalog is intentionally not padded from 303 to 10,000 with cloned or synthetic placeholder detections. The evaluator is tested to accept up to 10,000 unique rules, but filling that capacity with defensible detections requires verified source telemetry, source provenance, meaningful positive/negative fixtures, ATT&CK review, false-positive measurement and analyst approval.
+
+## Pinned Windows endpoint candidates (2026-10-20)
+
+Three additional endpoint candidates (AS-CORE-0301 through AS-CORE-0303) are narrow adaptations of SigmaHQ rules pinned to commit `f083329893e4f44869bf7d283c7aa001ad86a0cd`:
+
+- Encoded PowerShell command with a specific Base64 marker — upstream Sigma rule `ca2092a1-c273-4878-9b4b-0d60115bf5ea`, ATT&CK T1059.001.
+- Scheduled task creation with a temporary-path PowerShell command — upstream Sigma rule `3a734d25-df5c-4b99-8034-af1ddb5883a4`, ATT&CK T1053.005.
+- Rundll32 command referencing a PNG extension — upstream Sigma rule `4aa6040b-3f28-44e3-a769-9208e5feb5ec`, ATT&CK T1218.011.
+
+Each candidate includes source provenance and positive/benign-negative regression fixtures. The fixtures are intentionally small and test only the narrow translated condition; they do not establish production precision, recall, or low false-positive rates. Upstream Sigma statuses were `test`, not proof of universal reliability. All three candidates remain `draft` and disabled.
+
+**Important integration limitation:** the current persisted `SecurityEvent` shadow adapter does not collect raw Windows process-creation fields, Event ID 4698, or embedded scheduled-task XML. The new rules therefore do not fire on existing persisted security events and are not active coverage until a real, authenticated Windows telemetry adapter maps those fields into this normalized schema. Do not infer missing fields from event titles or descriptions. Adapter work must include source-contract tests and benign telemetry fixtures before a human-reviewed promotion.
+
+Run the focused checks from `backend/`:
+
+```bash
+python -m pytest -q tests/test_verified_endpoint_candidates.py tests/test_catalog_health.py tests/test_promotion_gates.py
+ruff check tests/test_verified_endpoint_candidates.py tests/test_catalog_health.py
+```
+
