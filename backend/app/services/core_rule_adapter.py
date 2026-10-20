@@ -67,7 +67,7 @@ def endpoint_observation_to_normalized(observation: Observation) -> dict[str, An
     elif isinstance(observation, PersistenceObs):
         normalized["persistence"] = {
             "mechanism": observation.mechanism,
-            "target": observation.target,
+            "target": observation.target.casefold(),
             "name": observation.name,
             "process_image": observation.process_image,
             "signed": observation.signed,
@@ -85,7 +85,11 @@ def evaluate_endpoint_observations(observations: list[Observation]) -> list[Find
     into the resulting finding; a digest is used only for deduplication.
     """
     findings: list[Finding] = []
-    catalog = _catalog()
+    try:
+        catalog = _catalog()
+    except (OSError, ValueError, TypeError):
+        # Catalog failures must not break the existing authenticated telemetry path.
+        return findings
     for observation in observations:
         normalized = endpoint_observation_to_normalized(observation)
         for match in evaluate_catalog(catalog, normalized):
