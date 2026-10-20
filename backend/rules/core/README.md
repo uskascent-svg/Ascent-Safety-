@@ -42,3 +42,10 @@ Add real source-specific adapters that supply verified action/context, per-rule 
 6. Verify model artifact and evaluation-set backups before production rollout.
 
 Never train directly on unreviewed user feedback or treat model confidence as proof that a sample is malicious.
+
+
+## Evidence-based rule promotion gate
+
+Use `app.detection.promotion_gates.evaluate_promotion_candidate` to evaluate a candidate against representative positive and benign-negative event fixtures before any manual catalog edit. The gate checks provenance (source and reference), an ISO-formatted test date, ATT&CK mapping, fixture presence, that all supplied positive fixtures match, and that no supplied negative fixture matches. It returns a structured report with failed checks and fixture counts.
+
+This gate is deliberately advisory and non-mutating: it never changes `lifecycle`, `enabled`, or the catalog, and even a passing result requires authorized human approval. Fixture quality and representativeness still require analyst review; passing a small fixture set is not proof of production efficacy. Rule promotion must remain a reviewed change with regression tests and false-positive measurement.
