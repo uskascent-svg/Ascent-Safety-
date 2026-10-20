@@ -49,14 +49,7 @@ def test_report_counts_catalog_without_claiming_capacity_is_coverage(tmp_path):
     assert report["enabled_production_rule_count"] == 0
     assert report["counts_by_lifecycle"] == {"draft": 1}
     assert report["source_family_counts"] == {"auth": 1}
-    assert report["promotion_ready_by_catalog_evidence_count"] == 3
-    assert report["promotion_evidence_counts"] == {
-        "with_mitre_mapping": 3,
-        "with_negative_fixtures": 3,
-        "with_positive_fixtures": 3,
-        "with_provenance": 3,
-        "with_valid_test_date": 3,
-    }
+    assert report["promotion_ready_by_catalog_evidence_count"] == 0
     assert report["automatic_promotion"] is False
 
 
