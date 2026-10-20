@@ -95,7 +95,10 @@ def build_catalog_report(path: str | Path | None = None) -> dict[str, Any]:
         "automatic_promotion": False,
         "limitations": [
             "Capacity is not the same as validated detection coverage.",
-            "Evidence counts only inspect fields stored in the catalog; fixture quality and representativeness require independent review.",
+            (
+                "Evidence counts inspect stored catalog fields only; fixture quality and "
+                "representativeness require independent review."
+            ),
             "A rule can fire only when explicitly enabled and in production lifecycle.",
         ],
     }
