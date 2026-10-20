@@ -49,3 +49,10 @@ Never train directly on unreviewed user feedback or treat model confidence as pr
 Use `app.detection.promotion_gates.evaluate_promotion_candidate` to evaluate a candidate against representative positive and benign-negative event fixtures before any manual catalog edit. The gate checks provenance (source and reference), an ISO-formatted test date, ATT&CK mapping, fixture presence, that all supplied positive fixtures match, and that no supplied negative fixture matches. It returns a structured report with failed checks and fixture counts.
 
 This gate is deliberately advisory and non-mutating: it never changes `lifecycle`, `enabled`, or the catalog, and even a passing result requires authorized human approval. Fixture quality and representativeness still require analyst review; passing a small fixture set is not proof of production efficacy. Rule promotion must remain a reviewed change with regression tests and false-positive measurement.
+
+
+## Catalog readiness report
+
+From `backend/`, run `python -m app.detection.catalog_health` to emit a machine-readable JSON report. It validates the same catalog schema used by the evaluator and reports the actual catalog count, capacity remaining, lifecycle/source-family counts, enabled production rules, and stored promotion-evidence gaps. The report is diagnostic only: available capacity is not detection coverage, evidence presence is not proof of fixture quality, and no lifecycle state is changed. Current checked-in catalog evidence must be measured from the file at the time the report runs; do not copy example counts into dashboards as constants.
+
+The catalog is intentionally not padded from 300 to 10,000 with cloned or synthetic placeholder detections. The evaluator is tested to accept up to 10,000 unique rules, but filling that capacity with defensible detections requires verified source telemetry, source provenance, meaningful positive/negative fixtures, ATT&CK review, false-positive measurement and analyst approval.
