@@ -14,6 +14,7 @@ from app.models import Endpoint, EndpointFinding, EventStatus, Severity, ThreatT
 from app.schemas.endpoint import BatchResult, FileObs, Observation, ProcessObs
 from app.schemas.security import SecurityEventCreate
 from app.services import event_ingest
+from app.services.core_rule_adapter import evaluate_endpoint_observations
 from app.services.threat_intel import aggregator
 from app.services.threat_intel.indicators import IndicatorError, normalize
 
@@ -78,6 +79,7 @@ def process_batch(
     db: Session, endpoint: Endpoint, observations: list[Observation], request: Request | None
 ) -> BatchResult:
     findings = evaluate(observations)
+    findings += evaluate_endpoint_observations(observations)
     if get_settings().endpoint_hash_enrichment:
         try:
             findings += hash_findings(db, observations)

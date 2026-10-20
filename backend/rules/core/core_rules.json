@@ -3,7 +3,7 @@
   "catalog_name": "ASCENT SAFETY Core Detection Candidates",
   "catalog_version": "0.2.0",
   "count": 303,
-  "notice": "The catalog contains disabled draft candidates, including three narrow Windows endpoint candidates adapted from pinned SigmaHQ rules. Regression fixtures validate only the encoded narrow patterns; these candidates are not production detections. Source adapters must emit the documented normalized fields. Do not promote without representative positive/benign-negative fixtures, ATT&CK review, false-positive measurement and analyst approval.",
+  "notice": "The catalog contains disabled draft candidates, including three narrow Windows endpoint candidates adapted from pinned SigmaHQ rules. The authenticated endpoint adapter maps explicit process and persistence observations into the normalized rule schema. These candidates are not production detections. Source adapter integration and schema regression tests do not establish precision, recall or low false-positive rates. Do not promote without representative benign/suspicious telemetry, false-positive measurement and analyst approval.",
   "rules": [
     {
       "id": "AS-CORE-0001",
@@ -6363,23 +6363,23 @@
     },
     {
       "id": "AS-CORE-0302",
-      "title": "Windows endpoint: Suspicious scheduled task command from temporary path",
+      "title": "Windows endpoint: Scheduled task targeting a temporary-path script",
       "source": "endpoint",
       "severity": "high",
       "confidence": 0.6,
       "conditions": [
         {
-          "field": "event.code",
+          "field": "persistence.mechanism",
           "op": "eq",
-          "value": "4698"
+          "value": "scheduled_task"
         },
         {
-          "field": "task.content",
+          "field": "persistence.target",
           "op": "contains",
-          "value": "\\AppData\\Local\\Temp\\"
+          "value": "\\appdata\\local\\temp\\"
         },
         {
-          "field": "task.content",
+          "field": "persistence.target",
           "op": "contains",
           "value": "powershell"
         }
@@ -6387,7 +6387,7 @@
       "mitre_techniques": [
         "T1053.005"
       ],
-      "fp_notes": "Narrow candidate adapted from the pinned SigmaHQ scheduled-task rule and Windows Security event 4698. Requires audited event collection and extraction of TaskContent; the existing persisted SecurityEvent adapter does not currently supply these fields.",
+      "fp_notes": "Narrow candidate adapted from the pinned SigmaHQ scheduled-task rule. Evaluates the explicit target string supplied by the authenticated endpoint agent; it does not infer Windows Event ID 4698 or parse task XML. Temporary-path targets can be legitimate and require benign prevalence testing before promotion.",
       "owner": "ascent-detection",
       "last_tested": "2026-10-20",
       "playbook": null,
@@ -6401,22 +6401,20 @@
       "positive_fixtures": [
         {
           "source": "endpoint",
-          "event": {
-            "code": "4698"
-          },
-          "task": {
-            "content": "<Task><Command>powershell</Command><Arguments>-File C:\\Users\\user\\AppData\\Local\\Temp\\update.ps1</Arguments></Task>"
+          "persistence": {
+            "mechanism": "scheduled_task",
+            "target": "c:\\users\\user\\appdata\\local\\temp\\powershell-update.ps1",
+            "name": "Updater"
           }
         }
       ],
       "negative_fixtures": [
         {
           "source": "endpoint",
-          "event": {
-            "code": "4698"
-          },
-          "task": {
-            "content": "<Task><Command>C:\\Windows\\System32\\cleanmgr.exe</Command></Task>"
+          "persistence": {
+            "mechanism": "scheduled_task",
+            "target": "c:\\windows\\system32\\cleanmgr.exe",
+            "name": "Disk Cleanup"
           }
         }
       ]
