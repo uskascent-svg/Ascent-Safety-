@@ -31,7 +31,7 @@ def _process(image, command_line):
 def _persistence(target, mechanism="scheduled_task"):
     return PersistenceObs(
         type="persistence",
-        occurred_at=datetime(2026, 10, 20, 10, tzinfo=UTC),
+        occurred_at=datetime.now(UTC) - timedelta(minutes=1),
         mechanism=mechanism,
         target=target,
     )
