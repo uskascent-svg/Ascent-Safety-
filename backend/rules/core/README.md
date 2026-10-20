@@ -2,7 +2,7 @@
 
 ## Scale and ML integration
 
-The evaluator accepts catalogs up to 10,000 unique declarative rules and normalizes each event once, filtering candidates by exact source family plus wildcard rules. The 10,000 limit is a tested capacity limit, not a claim that 10,000 validated detections ship enabled. The checked-in catalog still contains 300 disabled draft candidates. Do not inflate counts with generated placeholder rules or enable candidates without telemetry mappings and quality evidence.
+The evaluator accepts catalogs up to 10,000 unique declarative rules and normalizes each event once, filtering candidates by exact source family plus wildcard rules. The 10,000 limit is a tested capacity limit, not a claim that 10,000 validated detections ship enabled. The checked-in catalog now contains 303 disabled draft candidates, including three provenance-linked Windows endpoint candidates. Do not inflate counts with generated placeholder rules or enable candidates without telemetry mappings and quality evidence.
 
 The existing threat-analysis path includes a TF-IDF classifier and a controlled feedback-training workflow: encrypted opt-in samples, reviewer approval, deduplication, independent holdout evaluation, signed model artifacts, candidate/active states, operator promotion, audit records and rollback. Training is intentionally unavailable unless the encryption key, model-signing key and independent labeled test set are configured. It is not online self-modification: analyst feedback must be reviewed and a candidate must pass evaluation before promotion.
 
@@ -55,7 +55,7 @@ This gate is deliberately advisory and non-mutating: it never changes `lifecycle
 
 From `backend/`, run `python -m app.detection.catalog_health` to emit a machine-readable JSON report. It validates the same catalog schema used by the evaluator and reports the actual catalog count, capacity remaining, lifecycle/source-family counts, enabled production rules, and stored promotion-evidence gaps. The report is diagnostic only: available capacity is not detection coverage, evidence presence is not proof of fixture quality, and no lifecycle state is changed. Current checked-in catalog evidence must be measured from the file at the time the report runs; do not copy example counts into dashboards as constants.
 
-The catalog is intentionally not padded from 300 to 10,000 with cloned or synthetic placeholder detections. The evaluator is tested to accept up to 10,000 unique rules, but filling that capacity with defensible detections requires verified source telemetry, source provenance, meaningful positive/negative fixtures, ATT&CK review, false-positive measurement and analyst approval.
+The catalog is intentionally not padded from 303 to 10,000 with cloned or synthetic placeholder detections. The evaluator is tested to accept up to 10,000 unique rules, but filling that capacity with defensible detections requires verified source telemetry, source provenance, meaningful positive/negative fixtures, ATT&CK review, false-positive measurement and analyst approval.
 
 ## Pinned Windows endpoint candidates (2026-10-20)
 
