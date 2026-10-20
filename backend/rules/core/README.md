@@ -62,12 +62,12 @@ The catalog is intentionally not padded from 303 to 10,000 with cloned or synthe
 Three additional endpoint candidates (AS-CORE-0301 through AS-CORE-0303) are narrow adaptations of SigmaHQ rules pinned to commit `f083329893e4f44869bf7d283c7aa001ad86a0cd`:
 
 - Encoded PowerShell command with a specific Base64 marker — upstream Sigma rule `ca2092a1-c273-4878-9b4b-0d60115bf5ea`, ATT&CK T1059.001.
-- Scheduled task creation with a temporary-path PowerShell command — upstream Sigma rule `3a734d25-df5c-4b99-8034-af1ddb5883a4`, ATT&CK T1053.005.
+- Scheduled-task persistence targeting a temporary-path PowerShell script — upstream Sigma rule `3a734d25-df5c-4b99-8034-af1ddb5883a4`, ATT&CK T1053.005.
 - Rundll32 command referencing a PNG extension — upstream Sigma rule `4aa6040b-3f28-44e3-a769-9208e5feb5ec`, ATT&CK T1218.011.
 
 Each candidate includes source provenance and positive/benign-negative regression fixtures. The fixtures are intentionally small and test only the narrow translated condition; they do not establish production precision, recall, or low false-positive rates. Upstream Sigma statuses were `test`, not proof of universal reliability. All three candidates remain `draft` and disabled.
 
-**Important integration limitation:** the current persisted `SecurityEvent` shadow adapter does not collect raw Windows process-creation fields, Event ID 4698, or embedded scheduled-task XML. The new rules therefore do not fire on existing persisted security events and are not active coverage until a real, authenticated Windows telemetry adapter maps those fields into this normalized schema. Do not infer missing fields from event titles or descriptions. Adapter work must include source-contract tests and benign telemetry fixtures before a human-reviewed promotion.
+**Endpoint telemetry integration:** the existing authenticated `/api/endpoint-telemetry` path already accepts typed `ProcessObs` and `PersistenceObs` observations. The core-rule adapter now maps only those explicit fields (`process.image`, `process.command_line`, `persistence.mechanism`, and `persistence.target`) into the rule schema and evaluates enabled production rules alongside existing endpoint detectors. It does not infer Windows Event ID 4698 or synthesize scheduled-task XML. The three catalog candidates remain disabled drafts and therefore cannot create findings. Regression tests validate field mapping and candidate conditions in isolation; this is not a claim of production detection quality or representative false-positive measurement.
 
 Run the focused checks from `backend/`:
 
@@ -76,3 +76,8 @@ python -m pytest -q tests/test_verified_endpoint_candidates.py tests/test_catalo
 ruff check tests/test_verified_endpoint_candidates.py tests/test_catalog_health.py
 ```
 
+
+
+### Endpoint core-rule adapter regression checks
+
+From `backend/`, run `python -m pytest -q tests/test_endpoint_core_rule_adapter.py tests/test_verified_endpoint_candidates.py tests/test_core_rule_adapter.py tests/test_endpoint_ingest.py` (where the endpoint ingest test module is present). Draft rules must remain inert; only explicitly enabled production rules may create endpoint findings. Raw command lines and persistence targets are not copied into new core-rule finding descriptions or evidence.
