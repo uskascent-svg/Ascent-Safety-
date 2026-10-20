@@ -11,6 +11,7 @@ from app.detection.core_rules import Rule, evaluate_catalog, load_catalog
 from app.detection.malware.types import Finding
 from app.schemas.endpoint import Observation, PersistenceObs, ProcessObs
 
+
 @lru_cache(maxsize=1)
 def _catalog() -> dict[str, Rule]:
     return load_catalog()
