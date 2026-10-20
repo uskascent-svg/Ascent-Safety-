@@ -11,7 +11,7 @@ Additive to the existing FastAPI application. Existing phishing/file analysis, a
 
 ## Catalog status
 
-`core_rules.json` contains 300 unique disabled draft candidates across six source families. They are not validated production detections and must not be enabled as-is. They have no guessed ATT&CK mappings or test dates. Add source-specific mappings, positive and benign-negative fixtures, false-positive measurements and analyst review before promotion.
+`core_rules.json` contains 303 unique disabled draft candidates across six source families. The three Windows endpoint candidates have pinned upstream provenance, ATT&CK mappings, and small positive/benign-negative regression fixtures; these limited fixtures do not prove production efficacy. The other draft candidates still require source-specific mappings, evidence and analyst review before promotion.
 
 ## Safety
 
@@ -25,7 +25,7 @@ From `backend/`, run `python -m pytest -q tests/test_core_rules.py tests/test_co
 
 The event-ingestion service now invokes `app.services.core_rule_adapter` after storing a security event and records the evaluator status, match count and matched rule IDs in the existing audit record. It does not add a table, endpoint, dependency, or bypass the existing ingest key, event transaction, alert policy or audit flow. A malformed/missing catalog fails closed for detection while allowing the original event ingest to continue.
 
-The adapter maps only fields already present in `SecurityEvent`. It deliberately does not infer `event.action` from titles/descriptions or guess a source family from a provider name. Since the catalog currently contains only disabled draft candidates, expected match count is zero. Matches are shadow/audit metadata only; they do not create alerts or change severity.
+The persisted-event adapter maps only fields already present in `SecurityEvent`; it does not infer `event.action` from titles/descriptions or guess source families. The endpoint adapter separately maps explicit typed process/persistence telemetry into normalized events. Draft candidates remain inert, and persisted-event matches remain shadow/audit metadata; this integration does not bypass the existing endpoint authentication, event ingestion, or alert policies.
 
 ## Remaining Phase 1 work
 
