@@ -203,4 +203,15 @@ def load_catalog(path: str | Path | None = None) -> dict[str, Rule]:
         raise ValueError(f"unable to read rule catalog: {catalog_path}") from exc
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         raise ValueError("unsupported or invalid rule catalog schema")
-    return load_rules(payload.get("rules"))
+    rows = payload.get("rules")
+    if not isinstance(rows, list):
+        raise ValueError("rule catalog rules must be a list")
+    declared_count = payload.get("count")
+    if not isinstance(declared_count, int) or isinstance(declared_count, bool):
+        raise ValueError("rule catalog count must be an integer")
+    if declared_count != len(rows):
+        raise ValueError(
+            f"rule catalog count mismatch: metadata declares {declared_count}, "
+            f"but contains {len(rows)} rules"
+        )
+    return load_rules(rows)
