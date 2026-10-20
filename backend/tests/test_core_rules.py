@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.detection.core_rules import (
@@ -5,6 +7,7 @@ from app.detection.core_rules import (
     Rule,
     evaluate_catalog,
     evaluate_rule,
+    load_catalog,
     load_rules,
     normalize_event,
 )
@@ -141,3 +144,34 @@ def test_catalog_rejects_more_than_ten_thousand_rules():
     }
     with pytest.raises(ValueError, match="10000-rule limit"):
         load_rules([row] * (MAX_RULES + 1))
+
+
+
+def test_catalog_metadata_count_must_match_actual_rules(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(
+        json.dumps({"schema_version": 1, "count": 2, "rules": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="count mismatch"):
+        load_catalog(catalog_path)
+
+
+def test_catalog_metadata_count_must_be_integer_not_boolean(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(
+        json.dumps({"schema_version": 1, "count": True, "rules": []}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="count must be an integer"):
+        load_catalog(catalog_path)
+
+
+def test_catalog_rules_field_must_be_a_list(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(
+        json.dumps({"schema_version": 1, "count": 0, "rules": {}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="rules must be a list"):
+        load_catalog(catalog_path)
