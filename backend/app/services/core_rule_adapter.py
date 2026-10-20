@@ -1,17 +1,15 @@
-"""Safe shadow adapter from persisted security events to the core rule evaluator.
-
-Only fields present in the existing event model are mapped. In particular, title and
-description are never treated as an event.action, and source names are not guessed into
-source families. Matches are audit metadata only until alert persistence and promotion
-controls are explicitly implemented.
-"""
+"""Safe adapters from persisted events and authenticated endpoint telemetry to core rules."""
 from __future__ import annotations
 
+import hashlib
+import json
 from functools import lru_cache
+from pathlib import PureWindowsPath
 from typing import Any
 
 from app.detection.core_rules import Rule, evaluate_catalog, load_catalog
-
+from app.detection.malware.types import Finding
+from app.schemas.endpoint import Observation, PersistenceObs, ProcessObs
 
 @lru_cache(maxsize=1)
 def _catalog() -> dict[str, Rule]:
@@ -26,10 +24,8 @@ def security_event_to_normalized(event: Any) -> dict[str, Any]:
     severity = getattr(event, "severity", None)
     status = getattr(event, "status", None)
     title = getattr(event, "title", None)
-
     if not isinstance(source, str) or not source:
         raise ValueError("security event source is required")
-
     return {
         "source": source,
         "timestamp": occurred_at.isoformat() if occurred_at is not None else None,
@@ -47,19 +43,85 @@ def security_event_to_normalized(event: Any) -> dict[str, Any]:
     }
 
 
+def endpoint_observation_to_normalized(observation: Observation) -> dict[str, Any]:
+    """Map only fields explicitly supplied by the authenticated endpoint agent.
+
+    This is a normalized rule-evaluation view, not a persisted raw-telemetry record.
+    In particular, persistence targets are not treated as Windows event IDs or task XML.
+    """
+    data = observation.model_dump(mode="json")
+    normalized: dict[str, Any] = {
+        "source": "endpoint",
+        "timestamp": data.get("occurred_at"),
+        "event": {"kind": "event"},
+    }
+    if isinstance(observation, ProcessObs):
+        normalized["process"] = {
+            "name": PureWindowsPath(observation.image).name.lower(),
+            "image": observation.image,
+            "command_line": observation.command_line or "",
+            "parent_image": observation.parent_image,
+            "user": observation.user,
+            "sha256": observation.sha256,
+        }
+    elif isinstance(observation, PersistenceObs):
+        normalized["persistence"] = {
+            "mechanism": observation.mechanism,
+            "target": observation.target,
+            "name": observation.name,
+            "process_image": observation.process_image,
+            "signed": observation.signed,
+        }
+    else:
+        # Unsupported observation kinds deliberately have no process/persistence fields.
+        normalized["observation"] = {"type": data.get("type")}
+    return normalized
+
+
+def evaluate_endpoint_observations(observations: list[Observation]) -> list[Finding]:
+    """Convert matches from enabled production rules into existing endpoint findings.
+
+    Draft candidates remain inert. Raw command lines and persistence targets are not copied
+    into the resulting finding; a digest is used only for deduplication.
+    """
+    findings: list[Finding] = []
+    catalog = _catalog()
+    for observation in observations:
+        normalized = endpoint_observation_to_normalized(observation)
+        for match in evaluate_catalog(catalog, normalized):
+            rule_id = match["rule_id"]
+            technique_ids = match.get("mitre_techniques", [])
+            digest = hashlib.sha256(
+                json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            findings.append(
+                Finding(
+                    detector="core_rules",
+                    code=rule_id,
+                    severity=match["severity"],
+                    title=match["title"][:200],
+                    description=(
+                        f"Enabled core detection rule {rule_id} matched authenticated endpoint "
+                        "telemetry. Review the rule conditions and source event."
+                    ),
+                    occurred_at=observation.occurred_at,
+                    evidence=[
+                        f"rule_id: {rule_id}",
+                        f"mitre_techniques: {', '.join(technique_ids) or 'not mapped'}",
+                    ],
+                    fingerprint=f"{rule_id}:{digest}",
+                )
+            )
+    return findings
+
+
 def evaluate_security_event(event: Any) -> dict[str, Any]:
     """Run catalog in shadow mode; fail closed without disrupting event ingestion."""
     try:
         normalized = security_event_to_normalized(event)
         catalog = _catalog()
     except (OSError, ValueError, TypeError) as exc:
-        return {
-            "status": "unavailable",
-            "match_count": 0,
-            "matches": [],
-            "reason": type(exc).__name__,
-        }
-
+        return {"status": "unavailable", "match_count": 0, "matches": [], "reason": type(exc).__name__}
     matches = evaluate_catalog(catalog, normalized)
     return {
         "status": "evaluated",
