@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 
@@ -22,7 +22,7 @@ def _production_candidate(rule_id):
 def _process(image, command_line):
     return ProcessObs(
         type="process",
-        occurred_at=datetime(2026, 10, 20, 10, tzinfo=UTC),
+        occurred_at=datetime.now(UTC) - timedelta(minutes=1),
         image=image,
         command_line=command_line,
     )
