@@ -6347,7 +6347,7 @@
           "source": "endpoint",
           "process": {
             "name": "powershell.exe",
-            "command_line": "powershell.exe -NoProfile -EncodedCommand SQBFAFgA"
+            "command_line": "powershell.exe -NoProfile -enc SQBFAFgA"
           }
         }
       ],
