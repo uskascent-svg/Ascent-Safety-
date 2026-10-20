@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "catalog_name": "ASCENT SAFETY Core Detection Candidates",
-  "catalog_version": "0.1.0",
-  "count": 300,
-  "notice": "These 300 records are disabled draft candidates, not validated production detections. Source adapters must emit the documented canonical event.action values. Do not promote without positive/negative fixtures, ATT&CK review, FP measurement and analyst approval.",
+  "catalog_version": "0.2.0",
+  "count": 303,
+  "notice": "The catalog contains disabled draft candidates, including three narrow Windows endpoint candidates adapted from pinned SigmaHQ rules. Regression fixtures validate only the encoded narrow patterns; these candidates are not production detections. Source adapters must emit the documented normalized fields. Do not promote without representative positive/benign-negative fixtures, ATT&CK review, false-positive measurement and analyst approval.",
   "rules": [
     {
       "id": "AS-CORE-0001",
@@ -6304,6 +6304,173 @@
       "playbook": null,
       "lifecycle": "draft",
       "enabled": false
+    },
+    {
+      "id": "AS-CORE-0301",
+      "title": "Windows endpoint: Encoded PowerShell command with known Base64 marker",
+      "source": "endpoint",
+      "severity": "high",
+      "confidence": 0.65,
+      "conditions": [
+        {
+          "field": "process.name",
+          "op": "eq",
+          "value": "powershell.exe"
+        },
+        {
+          "field": "process.command_line",
+          "op": "contains",
+          "value": " -enc"
+        },
+        {
+          "field": "process.command_line",
+          "op": "contains",
+          "value": " SQBFAFgA"
+        }
+      ],
+      "mitre_techniques": [
+        "T1059.001"
+      ],
+      "fp_notes": "Narrow candidate adapted from the pinned SigmaHQ rule. It matches one encoded-command marker only; benign administration and other encoded forms need broader evaluation. Regression fixtures are illustrative, not a representative production dataset.",
+      "owner": "ascent-detection",
+      "last_tested": "2026-10-20",
+      "playbook": null,
+      "lifecycle": "draft",
+      "enabled": false,
+      "provenance": {
+        "source": "SigmaHQ/sigma (upstream rule status: test)",
+        "reference": "https://github.com/SigmaHQ/sigma/blob/f083329893e4f44869bf7d283c7aa001ad86a0cd/rules/windows/process_creation/proc_creation_win_powershell_base64_encoded_cmd.yml",
+        "upstream_rule_id": "ca2092a1-c273-4878-9b4b-0d60115bf5ea"
+      },
+      "positive_fixtures": [
+        {
+          "source": "endpoint",
+          "process": {
+            "name": "powershell.exe",
+            "command_line": "powershell.exe -NoProfile -EncodedCommand SQBFAFgA"
+          }
+        }
+      ],
+      "negative_fixtures": [
+        {
+          "source": "endpoint",
+          "process": {
+            "name": "powershell.exe",
+            "command_line": "powershell.exe -NoProfile -File .\\maintenance.ps1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "AS-CORE-0302",
+      "title": "Windows endpoint: Suspicious scheduled task command from temporary path",
+      "source": "endpoint",
+      "severity": "high",
+      "confidence": 0.6,
+      "conditions": [
+        {
+          "field": "event.code",
+          "op": "eq",
+          "value": "4698"
+        },
+        {
+          "field": "task.content",
+          "op": "contains",
+          "value": "\\AppData\\Local\\Temp\\"
+        },
+        {
+          "field": "task.content",
+          "op": "contains",
+          "value": "powershell"
+        }
+      ],
+      "mitre_techniques": [
+        "T1053.005"
+      ],
+      "fp_notes": "Narrow candidate adapted from the pinned SigmaHQ scheduled-task rule and Windows Security event 4698. Requires audited event collection and extraction of TaskContent; the existing persisted SecurityEvent adapter does not currently supply these fields.",
+      "owner": "ascent-detection",
+      "last_tested": "2026-10-20",
+      "playbook": null,
+      "lifecycle": "draft",
+      "enabled": false,
+      "provenance": {
+        "source": "SigmaHQ/sigma (upstream rule status: test)",
+        "reference": "https://github.com/SigmaHQ/sigma/blob/f083329893e4f44869bf7d283c7aa001ad86a0cd/rules/windows/builtin/security/win_security_susp_scheduled_task_creation.yml",
+        "upstream_rule_id": "3a734d25-df5c-4b99-8034-af1ddb5883a4"
+      },
+      "positive_fixtures": [
+        {
+          "source": "endpoint",
+          "event": {
+            "code": "4698"
+          },
+          "task": {
+            "content": "<Task><Command>powershell</Command><Arguments>-File C:\\Users\\user\\AppData\\Local\\Temp\\update.ps1</Arguments></Task>"
+          }
+        }
+      ],
+      "negative_fixtures": [
+        {
+          "source": "endpoint",
+          "event": {
+            "code": "4698"
+          },
+          "task": {
+            "content": "<Task><Command>C:\\Windows\\System32\\cleanmgr.exe</Command></Task>"
+          }
+        }
+      ]
+    },
+    {
+      "id": "AS-CORE-0303",
+      "title": "Windows endpoint: Rundll32 command references an image extension",
+      "source": "endpoint",
+      "severity": "high",
+      "confidence": 0.6,
+      "conditions": [
+        {
+          "field": "process.name",
+          "op": "eq",
+          "value": "rundll32.exe"
+        },
+        {
+          "field": "process.command_line",
+          "op": "contains",
+          "value": ".png"
+        }
+      ],
+      "mitre_techniques": [
+        "T1218.011"
+      ],
+      "fp_notes": "Narrow candidate adapted from the pinned SigmaHQ rule. A file extension alone is not proof of maliciousness; validate command-line parsing and benign software prevalence before promotion.",
+      "owner": "ascent-detection",
+      "last_tested": "2026-10-20",
+      "playbook": null,
+      "lifecycle": "draft",
+      "enabled": false,
+      "provenance": {
+        "source": "SigmaHQ/sigma (upstream rule status: test)",
+        "reference": "https://github.com/SigmaHQ/sigma/blob/f083329893e4f44869bf7d283c7aa001ad86a0cd/rules/windows/process_creation/proc_creation_win_rundll32_susp_execution_with_image_extension.yml",
+        "upstream_rule_id": "4aa6040b-3f28-44e3-a769-9208e5feb5ec"
+      },
+      "positive_fixtures": [
+        {
+          "source": "endpoint",
+          "process": {
+            "name": "rundll32.exe",
+            "command_line": "rundll32.exe C:\\Users\\Public\\photo.png,EntryPoint"
+          }
+        }
+      ],
+      "negative_fixtures": [
+        {
+          "source": "endpoint",
+          "process": {
+            "name": "rundll32.exe",
+            "command_line": "rundll32.exe C:\\Windows\\System32\\example.dll,EntryPoint"
+          }
+        }
+      ]
     }
   ]
 }
