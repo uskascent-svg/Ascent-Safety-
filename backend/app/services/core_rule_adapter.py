@@ -121,7 +121,12 @@ def evaluate_security_event(event: Any) -> dict[str, Any]:
         normalized = security_event_to_normalized(event)
         catalog = _catalog()
     except (OSError, ValueError, TypeError) as exc:
-        return {"status": "unavailable", "match_count": 0, "matches": [], "reason": type(exc).__name__}
+        return {
+            "status": "unavailable",
+            "match_count": 0,
+            "matches": [],
+            "reason": type(exc).__name__,
+        }
     matches = evaluate_catalog(catalog, normalized)
     return {
         "status": "evaluated",
